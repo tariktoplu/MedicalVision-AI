@@ -71,12 +71,12 @@ pip install -r requirements.txt
 ### Step 4: Setup Model Files
 Create the model directory and place your trained models:
 ```bash
-mkdir results_3DCNN
+mkdir Models
 ```
 
-Place your 5-fold model files in the `results_3DCNN/` directory:
+Place your 5-fold model files in the `Models/` directory:
 ```
-results_3DCNN/
+Models/
 ├── best_model_fold_0.pt
 ├── best_model_fold_1.pt
 ├── best_model_fold_2.pt
