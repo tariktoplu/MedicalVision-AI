@@ -193,7 +193,7 @@ class StartPage(QWidget):
         layout.setContentsMargins(50, 50, 50, 50)
         
         # Başlık
-        title = QLabel("🏥 Medikal Görüntü Analiz Sistemi")
+        title = QLabel(" Medikal Görüntü Analiz Sistemi")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet("""
             QLabel {
@@ -292,7 +292,7 @@ class AnalysisModePage(QWidget):
         layout.setContentsMargins(50, 50, 50, 50)
         
         # Geri butonu
-        back_btn = QPushButton("← Geri")
+        back_btn = QPushButton(" Geri")
         back_btn.setFixedSize(100, 40)
         back_btn.setStyleSheet("""
             QPushButton {
@@ -333,7 +333,7 @@ class AnalysisModePage(QWidget):
         button_layout.setSpacing(50)
         
         # Tekli Analiz
-        single_btn = QPushButton("📄 Tekli Analiz")
+        single_btn = QPushButton(" Tekli Analiz")
         single_btn.setFixedSize(200, 100)
         single_btn.setStyleSheet("""
             QPushButton {
@@ -354,7 +354,7 @@ class AnalysisModePage(QWidget):
         button_layout.addWidget(single_btn)
         
         # Çoklu Analiz
-        multi_btn = QPushButton("📁 Çoklu Analiz")
+        multi_btn = QPushButton(" Çoklu Analiz")
         multi_btn.setFixedSize(200, 100)
         multi_btn.setStyleSheet("""
             QPushButton {
@@ -399,7 +399,7 @@ class SingleAnalysisPage(QWidget):
         # Üst bar
         top_bar = QHBoxLayout()
         
-        back_btn = QPushButton("← Geri")
+        back_btn = QPushButton(" Geri")
         back_btn.setFixedSize(80, 35)
         back_btn.setStyleSheet("""
             QPushButton {
@@ -433,7 +433,7 @@ class SingleAnalysisPage(QWidget):
         left_layout = QVBoxLayout(left_panel)
         
         # Dosya yükleme
-        upload_section = QLabel("📁 Dosya Yükleme")
+        upload_section = QLabel(" Dosya Yükleme")
         upload_section.setAlignment(Qt.AlignCenter)
         upload_section.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
         left_layout.addWidget(upload_section)
@@ -460,7 +460,7 @@ class SingleAnalysisPage(QWidget):
         left_layout.addWidget(self.file_info)
         
         # Önizleme
-        preview_label = QLabel("🖼️ Önizleme")
+        preview_label = QLabel(" Önizleme")
         preview_label.setAlignment(Qt.AlignCenter)
         preview_label.setStyleSheet("font-size: 14px; font-weight: bold; margin: 10px;")
         left_layout.addWidget(preview_label)
@@ -481,7 +481,7 @@ class SingleAnalysisPage(QWidget):
         
         right_layout = QVBoxLayout(right_panel)
         
-        result_title = QLabel("🎯 Analiz Sonuçları")
+        result_title = QLabel(" Analiz Sonuçları")
         result_title.setAlignment(Qt.AlignCenter)
         result_title.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
         right_layout.addWidget(result_title)
@@ -563,7 +563,7 @@ class SingleAnalysisPage(QWidget):
             self.result_layout.itemAt(i).widget().deleteLater()
         
         # Progress göstergesi
-        self.progress_label = QLabel("🔄 Analiz başlatılıyor...")
+        self.progress_label = QLabel(" Analiz başlatılıyor...")
         self.progress_label.setAlignment(Qt.AlignCenter)
         self.progress_label.setStyleSheet("font-size: 14px; color: #3498db; margin: 20px;")
         self.result_layout.addWidget(self.progress_label)
@@ -577,7 +577,7 @@ class SingleAnalysisPage(QWidget):
     
     def update_progress(self, message):
         """Progress güncelleme"""
-        self.progress_label.setText(f"🔄 {message}")
+        self.progress_label.setText(f" {message}")
     
     def show_results(self, prediction, confidence, probabilities):
         """Sonuçları göster"""
@@ -585,7 +585,7 @@ class SingleAnalysisPage(QWidget):
         self.progress_label.deleteLater()
         
         # Başarı mesajı
-        success_label = QLabel("✅ Analiz Tamamlandı!")
+        success_label = QLabel(" Analiz Tamamlandı!")
         success_label.setAlignment(Qt.AlignCenter)
         success_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #27ae60; margin: 10px;")
         self.result_layout.addWidget(success_label)
@@ -595,7 +595,7 @@ class SingleAnalysisPage(QWidget):
         result_frame.setStyleSheet("QFrame { background: #e8f5e8; border-radius: 10px; padding: 15px; }")
         result_layout = QVBoxLayout(result_frame)
         
-        pred_label = QLabel("🎯 Tahmin:")
+        pred_label = QLabel(" Tahmin:")
         pred_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #2c3e50;")
         result_layout.addWidget(pred_label)
         
@@ -603,7 +603,7 @@ class SingleAnalysisPage(QWidget):
         pred_value.setStyleSheet("font-size: 20px; font-weight: bold; color: #e74c3c; margin: 5px;")
         result_layout.addWidget(pred_value)
         
-        conf_label = QLabel(f"📊 Güven Oranı: %{confidence:.1f}")
+        conf_label = QLabel(f" Güven Oranı: %{confidence:.1f}")
         conf_label.setStyleSheet("font-size: 14px; color: #2c3e50; margin: 5px;")
         result_layout.addWidget(conf_label)
         
@@ -614,7 +614,7 @@ class SingleAnalysisPage(QWidget):
         prob_frame.setStyleSheet("QFrame { background: #f8f9fa; border-radius: 10px; padding: 15px; }")
         prob_layout = QVBoxLayout(prob_frame)
         
-        prob_title = QLabel("📈 Tüm Sınıf Olasılıkları:")
+        prob_title = QLabel(" Tüm Sınıf Olasılıkları:")
         prob_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #2c3e50; margin-bottom: 10px;")
         prob_layout.addWidget(prob_title)
         
@@ -631,7 +631,7 @@ class SingleAnalysisPage(QWidget):
         """Hata gösterimi"""
         self.progress_label.deleteLater()
         
-        error_label = QLabel("❌ Analiz Hatası")
+        error_label = QLabel(" Analiz Hatası")
         error_label.setAlignment(Qt.AlignCenter)
         error_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #e74c3c; margin: 20px;")
         self.result_layout.addWidget(error_label)
@@ -662,7 +662,7 @@ class MultiAnalysisPage(QWidget):
         # Üst bar
         top_bar = QHBoxLayout()
         
-        back_btn = QPushButton("← Geri")
+        back_btn = QPushButton(" Geri")
         back_btn.setFixedSize(80, 35)
         back_btn.setStyleSheet("""
             QPushButton {
@@ -696,7 +696,7 @@ class MultiAnalysisPage(QWidget):
         left_layout = QVBoxLayout(left_panel)
         
         # Dosya yükleme
-        upload_section = QLabel("📁 Dosya Yükleme")
+        upload_section = QLabel(" Dosya Yükleme")
         upload_section.setAlignment(Qt.AlignCenter)
         upload_section.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
         left_layout.addWidget(upload_section)
@@ -788,7 +788,7 @@ class MultiAnalysisPage(QWidget):
         
         right_layout = QVBoxLayout(right_panel)
         
-        result_title = QLabel("🎯 Analiz Sonuçları")
+        result_title = QLabel(" Analiz Sonuçları")
         result_title.setAlignment(Qt.AlignCenter)
         result_title.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
         right_layout.addWidget(result_title)
