@@ -58,9 +58,11 @@ class MedicalImageAnalyzer(QMainWindow):
                 if os.path.exists(model_path):
                     model = MR3DCNN_LSTM_Attention()
                     model.load_state_dict(torch.load(model_path, map_location=self.device))
+                    model.to(self.device)
                     model.eval()
                     models.append(model)
-                    print(f"Model fold {fold} yüklendi")
+                    print(f"DEBUG: Model fold {fold} yüklendi. Veri Tipi: {next(model.parameters()).dtype}, Cihaz: {next(model.parameters()).device}")
+                    
                 else:
                     print(f"Uyarı: {model_path} bulunamadı")
             

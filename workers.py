@@ -27,15 +27,19 @@ class AnalysisWorker(QThread):
             self.progress.emit("Model analizi yapılıyor...")
             predictions = []
             
+            # Gelen tensorü GPU'ya taşı
+            image_tensor_gpu = image_tensor.to(self.device)
+            
             with torch.no_grad():
                 for i, model in enumerate(self.models):
                     self.progress.emit(f"Model {i+1}/{len(self.models)} çalışıyor...")
                     model.eval()
-                    output = model(image_tensor.unsqueeze(0).to(self.device))
+                    
+                    # Modelin ve tensorün aynı cihazda olduğundan emin ol
+                    output = model(image_tensor_gpu) # .unsqueeze(0) zaten preprocess'te eklendi
                     pred_probs = torch.softmax(output, dim=1)
                     predictions.append(pred_probs.cpu().numpy()[0])
             
-            # Ensemble tahmini
             avg_prediction = np.mean(predictions, axis=0)
             predicted_class = np.argmax(avg_prediction)
             confidence = avg_prediction[predicted_class] * 100
@@ -44,7 +48,9 @@ class AnalysisWorker(QThread):
             self.finished.emit(self.label_names[predicted_class], confidence, probabilities.tolist())
             
         except Exception as e:
-            self.error.emit(str(e))
+            # Hata mesajını daha anlaşılır hale getir
+            error_message = f"Analiz sırasında hata oluştu:\n{str(e)}\n\nLütfen model ve veri tiplerinin/cihazlarının uyumluluğunu kontrol edin."
+            self.error.emit(error_message)
     
     def preprocess_image(self, file_path):
         """Görüntüyü model için hazırla"""
@@ -59,13 +65,15 @@ class AnalysisWorker(QThread):
             image_array = (image_array - image_array.mean()) / (image_array.std() + 1e-6)
             image_array = cv2.resize(image_array, (256, 256))
             
-            # 3D tensor oluştur
             depth = 16
             slices = []
             for _ in range(depth):
-                slices.append(torch.tensor(image_array))
+                # Tensor oluştururken veri tipini açıkça float32 olarak belirtiyoruz.
+                slices.append(torch.tensor(image_array, dtype=torch.float32))
             
-            tensor = torch.stack(slices).unsqueeze(0)
+            # Boyutları modele uygun hale getir: (batch, channels, depth, height, width)
+            # Bizim durumumuzda: (1, 1, 16, 256, 256)
+            tensor = torch.stack(slices).unsqueeze(0).unsqueeze(0)
             return tensor
             
         except Exception as e:
@@ -73,8 +81,8 @@ class AnalysisWorker(QThread):
 
 class MultiAnalysisWorker(QThread):
     """Çoklu analiz için worker thread"""
-    file_progress = pyqtSignal(int, str, float, list)  # index, prediction, confidence, probabilities
-    file_error = pyqtSignal(int, str)  # index, error
+    file_progress = pyqtSignal(int, str, float, list)
+    file_error = pyqtSignal(int, str)
     all_finished = pyqtSignal()
     
     def __init__(self, models, device, file_paths, label_names):
@@ -88,12 +96,13 @@ class MultiAnalysisWorker(QThread):
         for i, file_path in enumerate(self.file_paths):
             try:
                 image_tensor = self.preprocess_image(file_path)
+                image_tensor_gpu = image_tensor.to(self.device)
                 
                 predictions = []
                 with torch.no_grad():
                     for model in self.models:
                         model.eval()
-                        output = model(image_tensor.unsqueeze(0).to(self.device))
+                        output = model(image_tensor_gpu)
                         pred_probs = torch.softmax(output, dim=1)
                         predictions.append(pred_probs.cpu().numpy()[0])
                 
@@ -105,7 +114,8 @@ class MultiAnalysisWorker(QThread):
                 self.file_progress.emit(i, self.label_names[predicted_class], confidence, probabilities.tolist())
                 
             except Exception as e:
-                self.file_error.emit(i, str(e))
+                error_message = f"Analiz hatası: {str(e)}"
+                self.file_error.emit(i, error_message)
         
         self.all_finished.emit()
     
@@ -124,9 +134,10 @@ class MultiAnalysisWorker(QThread):
             depth = 16
             slices = []
             for _ in range(depth):
-                slices.append(torch.tensor(image_array))
+                # Tensor oluştururken veri tipini açıkça float32 olarak belirtiyoruz.
+                slices.append(torch.tensor(image_array, dtype=torch.float32))
             
-            tensor = torch.stack(slices).unsqueeze(0)
+            tensor = torch.stack(slices).unsqueeze(0).unsqueeze(0)
             return tensor
             
         except Exception as e:
