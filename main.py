@@ -8,7 +8,7 @@ from PyQt5.QtGui import QPalette, QColor
 
 # Diğer Python dosyalarımızdan gerekli sınıfları içe aktaralım
 from model import MR3DCNN_LSTM_Attention
-from ui_pages import StartPage, AnalysisModePage, SingleAnalysisPage, MultiAnalysisPage
+from pages import StartPage, AnalysisModePage, SingleAnalysisPage, MultiAnalysisPage
 
 class MedicalImageAnalyzer(QMainWindow):
     """Ana uygulama sınıfı"""
