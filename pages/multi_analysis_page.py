@@ -5,15 +5,12 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLa
                              QScrollArea, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem, 
                              QHeaderView, QAbstractItemView, QProgressBar, QSplitter)
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QFont 
+from PyQt5.QtGui import QColor, QFont, QDragEnterEvent, QDragLeaveEvent, QDropEvent
 
-# Projenin kök dizinindeki workers'ı import ediyoruz
 from workers import MultiAnalysisWorker
 
 class MultiAnalysisPage(QWidget):
     """Çoklu analiz sayfası"""
-    # ... (Bu sınıfın tam ve güncel halini önceki yanıttan kopyalayın) ...
-    # ... (QSplitter düzeltmesi dahil) ...
     back_clicked = pyqtSignal()
     
     def __init__(self, modality, models, device, label_names):
@@ -23,8 +20,39 @@ class MultiAnalysisPage(QWidget):
         self.device = device
         self.label_names = label_names
         self.file_paths = []
+        self.setAcceptDrops(True) # Sürükle-bırak özelliğini etkinleştir
         self.setup_ui()
     
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        """Dosyalar widget üzerine sürüklendiğinde tetiklenir."""
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            # Görsel geri bildirim için sol panelin stilini değiştir
+            self.left_panel.setStyleSheet("QFrame { background: white; border-radius: 10px; border: 3px dashed #3498db; }")
+
+    def dragLeaveEvent(self, event: QDragLeaveEvent):
+        """Sürüklenen dosyalar widget'tan ayrıldığında tetiklenir."""
+        # Sol panelin stilini orijinal haline döndür
+        self.left_panel.setStyleSheet(self.left_panel_original_style)
+
+    def dropEvent(self, event: QDropEvent):
+        """Dosyalar widget üzerine bırakıldığında tetiklenir."""
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            
+            dropped_files = [url.toLocalFile() for url in event.mimeData().urls()]
+            
+            supported_formats = ('.dcm', '.png', '.jpg', '.jpeg', '.bmp')
+            valid_files = [f for f in dropped_files if f.lower().endswith(supported_formats)]
+            
+            if valid_files:
+                self.process_new_files(valid_files)
+            else:
+                QMessageBox.warning(self, "Desteklenmeyen Dosyalar", "Sürüklenen dosyalar arasında desteklenen bir görüntü formatı bulunamadı.")
+        
+        # Olaydan sonra panelin stilini her zaman normale döndür
+        self.left_panel.setStyleSheet(self.left_panel_original_style)
+
     def setup_ui(self):
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(20, 20, 20, 20)
@@ -40,23 +68,30 @@ class MultiAnalysisPage(QWidget):
         top_bar.addStretch()
         main_layout.addLayout(top_bar)
         
-        left_panel = QFrame()
-        left_panel.setFrameStyle(QFrame.StyledPanel)
-        left_panel.setStyleSheet("QFrame { background: white; border-radius: 10px; }")
-        left_layout = QVBoxLayout(left_panel)
-        upload_section = QLabel(" Dosya Yükleme")
+        self.left_panel = QFrame()
+        self.left_panel.setFrameStyle(QFrame.StyledPanel)
+        # Orijinal stili sakla ki sonra geri dönebilelim
+        self.left_panel_original_style = "QFrame { background: white; border-radius: 10px; }"
+        self.left_panel.setStyleSheet(self.left_panel_original_style)
+        
+        left_layout = QVBoxLayout(self.left_panel)
+        upload_section = QLabel("Dosyaları Buraya Sürükleyin\nveya Butona Tıklayın")
         upload_section.setAlignment(Qt.AlignCenter)
         upload_section.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
+        upload_section.setWordWrap(True)
         left_layout.addWidget(upload_section)
+        
         self.upload_btn = QPushButton("Dosyaları Seç")
         self.upload_btn.setFixedHeight(40)
         self.upload_btn.setStyleSheet("QPushButton { background: #3498db; color: white; border: none; border-radius: 8px; font-size: 14px; } QPushButton:hover { background: #2980b9; }")
-        self.upload_btn.clicked.connect(self.upload_files)
+        self.upload_btn.clicked.connect(self.upload_files_from_dialog)
         left_layout.addWidget(self.upload_btn)
+        
         self.file_info = QLabel("Henüz dosya yüklenmedi")
         self.file_info.setAlignment(Qt.AlignCenter)
         self.file_info.setStyleSheet("margin: 10px; color: #7f8c8d;")
         left_layout.addWidget(self.file_info)
+        
         self.table = QTableWidget()
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels(['Dosya Adı', 'Format', 'Durum', 'Tahmin', 'Güven (%)'])
@@ -67,6 +102,7 @@ class MultiAnalysisPage(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         left_layout.addWidget(self.table)
+        
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setStyleSheet("QProgressBar { border: 2px solid #bdc3c7; border-radius: 5px; text-align: center; font-weight: bold; } QProgressBar::chunk { background-color: #27ae60; border-radius: 3px; }")
@@ -80,6 +116,7 @@ class MultiAnalysisPage(QWidget):
         result_title.setAlignment(Qt.AlignCenter)
         result_title.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
         right_layout.addWidget(result_title)
+        
         self.result_area = QScrollArea()
         self.result_area.setWidgetResizable(True)
         self.result_area.setStyleSheet("border: none;")
@@ -93,20 +130,25 @@ class MultiAnalysisPage(QWidget):
         right_layout.addWidget(self.result_area)
         
         splitter = QSplitter(Qt.Horizontal)
-        splitter.addWidget(left_panel)
+        splitter.addWidget(self.left_panel)
         splitter.addWidget(right_panel)
         splitter.setSizes([700, 300]) 
         main_layout.addWidget(splitter)
         self.setLayout(main_layout)
 
-    def upload_files(self):
+    def process_new_files(self, file_paths):
+        """Yeni dosya listesini işlemek için merkezi fonksiyon."""
+        self.file_paths = file_paths
+        self.file_info.setText(f"{len(self.file_paths)} dosya analize hazır.")
+        self.populate_table()
+        self.start_analysis()
+
+    def upload_files_from_dialog(self):
+        """Dosya seçme diyalogunu açar."""
         file_types = "Tüm Desteklenen (*.dcm *.png *.jpg *.jpeg *.bmp);;DICOM (*.dcm);;Görüntü (*.png *.jpg *.jpeg *.bmp)"
         file_paths, _ = QFileDialog.getOpenFileNames(self, f"{self.modality} Dosyalarını Seç", "", file_types)
         if file_paths:
-            self.file_paths = file_paths
-            self.file_info.setText(f"{len(self.file_paths)} dosya seçildi.")
-            self.populate_table()
-            self.start_analysis()
+            self.process_new_files(file_paths)
 
     def populate_table(self):
         self.table.setRowCount(len(self.file_paths))

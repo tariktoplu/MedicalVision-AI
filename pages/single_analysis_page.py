@@ -8,11 +8,8 @@ import cv2
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame, 
                              QScrollArea, QFileDialog, QMessageBox)
 from PyQt5.QtCore import Qt, pyqtSignal
-# --- DÜZELTME BURADA ---
-# Olay ve Grafik sınıfları QtGui'den import edilir.
 from PyQt5.QtGui import QPixmap, QImage, QDragEnterEvent, QDragLeaveEvent, QDropEvent
 
-# Projenin kök dizinindeki workers'ı import ediyoruz
 from workers import AnalysisWorker
 
 class SingleAnalysisPage(QWidget):
@@ -26,7 +23,7 @@ class SingleAnalysisPage(QWidget):
         self.device = device
         self.label_names = label_names
         self.current_file = None
-        self.setAcceptDrops(True)
+        self.setAcceptDrops(True)  # Sürükle-bırak özelliğini etkinleştir
         self.setup_ui()
 
     def clear_layout(self, layout):
@@ -76,11 +73,11 @@ class SingleAnalysisPage(QWidget):
         top_bar.addStretch()
         main_layout.addLayout(top_bar)
         content_layout = QHBoxLayout()
-        left_panel = QFrame()
-        left_panel.setFrameStyle(QFrame.StyledPanel)
-        left_panel.setStyleSheet("QFrame { background: white; border-radius: 10px; }")
-        left_panel.setFixedWidth(400)
-        left_layout = QVBoxLayout(left_panel)
+        self.left_panel = QFrame()
+        self.left_panel.setFrameStyle(QFrame.StyledPanel)
+        self.left_panel.setStyleSheet("QFrame { background: white; border-radius: 10px; }")
+        self.left_panel.setFixedWidth(400)
+        left_layout = QVBoxLayout(self.left_panel)
         upload_section = QLabel(" Dosya Yükleme")
         upload_section.setAlignment(Qt.AlignCenter)
         upload_section.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
@@ -105,7 +102,7 @@ class SingleAnalysisPage(QWidget):
         self.preview_label.setText("Dosyayı Buraya Sürükleyin\nveya 'Dosya Seç' Butonuna Tıklayın")
         self.preview_label.setWordWrap(True)
         left_layout.addWidget(self.preview_label)
-        content_layout.addWidget(left_panel)
+        content_layout.addWidget(self.left_panel)
         right_panel = QFrame()
         right_panel.setFrameStyle(QFrame.StyledPanel)
         right_panel.setStyleSheet("QFrame { background: white; border-radius: 10px; }")
