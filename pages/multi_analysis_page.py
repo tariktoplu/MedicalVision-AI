@@ -11,7 +11,6 @@ from PyQt5.QtGui import QColor, QFont, QDragEnterEvent, QDragLeaveEvent, QDropEv
 from workers import MultiAnalysisWorker
 
 class MultiAnalysisPage(QWidget):
-    """Modernize edilmiş çoklu analiz sayfası"""
     back_clicked = pyqtSignal()
     
     def __init__(self, modality, models, device, label_names):
@@ -24,6 +23,24 @@ class MultiAnalysisPage(QWidget):
         self.setAcceptDrops(True)
         self.setup_ui()
     
+    # ... (setup_ui ve diğer metotlar) ...
+    def start_analysis(self):
+        if not self.file_paths: return
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setMaximum(len(self.file_paths))
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat("%p%")
+        self.right_stack.setCurrentWidget(self.initial_summary_widget)
+        
+        # --- DÜZELTME BURADA ---
+        self.worker = MultiAnalysisWorker(self.models, self.device, self.file_paths, self.label_names, self.modality)
+        
+        self.worker.file_progress.connect(self.update_file_result)
+        self.worker.file_error.connect(self.update_file_error)
+        self.worker.all_finished.connect(self.analysis_finished)
+        self.worker.start()
+
+    # ... (Geri kalan tüm metotlar aynı kalabilir) ...
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
@@ -42,7 +59,7 @@ class MultiAnalysisPage(QWidget):
             if valid_files:
                 self.process_new_files(valid_files)
             else:
-                QMessageBox.warning(self, "Desteklenmeyen Dosyalar", "Sürüklenen dosyalar arasında desteklenen bir görüntü formatı bulunamadı.")
+                QMessageBox.warning(self, "Desteklenmeyen Dosyalar", "Desteklenen bir görüntü formatı seçin.")
         
         self.left_panel.setStyleSheet(self.style_sheet_default)
 
@@ -53,7 +70,6 @@ class MultiAnalysisPage(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
         
-        # Üst Bar
         top_bar = QHBoxLayout()
         back_icon = self.style().standardIcon(QStyle.SP_ArrowLeft)
         back_btn = QPushButton(back_icon, " Geri")
@@ -69,10 +85,8 @@ class MultiAnalysisPage(QWidget):
         top_bar.addStretch()
         main_layout.addLayout(top_bar)
 
-        # Ana Bölücü (Splitter)
         splitter = QSplitter(Qt.Horizontal)
         
-        # Sol Panel
         self.left_panel = QFrame()
         self.left_panel.setStyleSheet(self.style_sheet_default)
         left_layout = QVBoxLayout(self.left_panel)
@@ -122,7 +136,6 @@ class MultiAnalysisPage(QWidget):
         """)
         left_layout.addWidget(self.progress_bar)
 
-        # Sağ Panel (Özet)
         right_panel = QFrame()
         right_panel.setStyleSheet(self.style_sheet_default)
         right_layout = QVBoxLayout(right_panel)
@@ -155,14 +168,10 @@ class MultiAnalysisPage(QWidget):
 
         splitter.addWidget(self.left_panel)
         splitter.addWidget(right_panel)
-        splitter.setSizes([700, 400]) 
+        splitter.setSizes([700, 400])
         splitter.setStyleSheet("QSplitter::handle { background-color: #ecf0f1; } QSplitter::handle:hover { background-color: #bdc3c7; }")
-        
-        # --- ANA DEĞİŞİKLİK BURADA ---
-        # splitter'a 1 stretch faktörü vererek dikey olarak genişlemesini sağlıyoruz.
         main_layout.addWidget(splitter, 1)
 
-    # Geri kalan tüm metotlar aynı
     def process_new_files(self, file_paths):
         self.file_paths = file_paths
         self.populate_table()
@@ -193,20 +202,6 @@ class MultiAnalysisPage(QWidget):
         font.setBold(True)
         item.setFont(font)
         self.table.setItem(row, 1, item)
-    
-    def start_analysis(self):
-        if not self.file_paths: return
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setMaximum(len(self.file_paths))
-        self.progress_bar.setValue(0)
-        self.progress_bar.setFormat("%p%")
-        self.right_stack.setCurrentWidget(self.initial_summary_widget)
-        
-        self.worker = MultiAnalysisWorker(self.models, self.device, self.file_paths, self.label_names)
-        self.worker.file_progress.connect(self.update_file_result)
-        self.worker.file_error.connect(self.update_file_error)
-        self.worker.all_finished.connect(self.analysis_finished)
-        self.worker.start()
 
     def update_file_result(self, index, prediction, confidence, probabilities):
         self.set_status_badge(index, "Tamamlandı", "#27ae60")

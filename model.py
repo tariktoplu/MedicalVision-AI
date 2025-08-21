@@ -1,42 +1,90 @@
-# medical_analyzer_project/model.py
+# model.py
 
 import torch
-from torch import nn
+import torch.nn as nn
+import torchvision.models as models
+from torchvision.models import ConvNeXt_Tiny_Weights
 
-class SEBlock(nn.Module):
-    def __init__(self, channels, reduction=16):
+# --- MR MODELİ (mednet.py dosyasından alındı - Değişiklik Yok) ---
+
+class MedNet(nn.Module):
+    def __init__(self):
         super().__init__()
-        self.fc1 = nn.Linear(channels, channels // reduction)
-        self.fc2 = nn.Linear(channels // reduction, channels)
+        self.features = nn.Sequential(
+            nn.Conv3d(1, 32, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool3d(2),
+            nn.Conv3d(32, 64, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool3d(2),
+        )
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(64 * 4 * 64 * 64, 128),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(128, 3)
+        )
 
     def forward(self, x):
-        b, c, d, h, w = x.shape
-        y = x.mean(dim=[2, 3, 4])
-        y = torch.relu(self.fc1(y))
-        y = torch.sigmoid(self.fc2(y)).view(b, c, 1, 1, 1)
-        return x * y
+        x = self.features(x)
+        return self.classifier(x)
 
-class MR3DCNN_LSTM_Attention(nn.Module):
-    def __init__(self, hidden_size=64, lstm_layers=1):
-        super().__init__()
-        self.conv1 = nn.Conv3d(1, 8, 3, padding=1)
-        self.pool1 = nn.MaxPool3d(2)
-        self.se1 = SEBlock(8)
-        
-        self.conv2 = nn.Conv3d(8, 16, 3, padding=1)
-        self.pool2 = nn.MaxPool3d(2)
-        self.se2 = SEBlock(16)
-        
-        self.flatten = nn.Flatten(start_dim=2)
-        self.lstm = nn.LSTM(input_size=16 * 64 * 64, hidden_size=hidden_size, num_layers=lstm_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_size, 3)
+# --- BT MODELİ (Hata mesajına göre tamamen yeniden düzenlendi) ---
 
+class BT_ConvNeXt(nn.Module):
+    def __init__(self, num_classes=3):
+        super(BT_ConvNeXt, self).__init__()
+        
+        # 1. Adım: Önceden eğitilmiş ConvNeXt modelini olduğu gibi yükle.
+        # Bu model 3 kanallı girdi bekler.
+        self.model = models.convnext_tiny(weights=ConvNeXt_Tiny_Weights.DEFAULT)
+        
+        # 2. Adım: Sınıflandırıcıyı, eğitim kodundaki (ConvNext_Tiny.py)
+        # BİREBİR AYNI MİMARİ ile değiştir.
+        # Bu, 1 sınıflı çıktı verir ve ikili sınıflandırma için kullanılır.
+        num_ftrs = self.model.classifier[2].in_features
+        self.model.classifier[2] = nn.Sequential(
+            nn.Linear(num_ftrs, 128),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(128, 1), # DİKKAT: Eğitildiği gibi 1 çıktılı
+            nn.Sigmoid()
+        )
+    
     def forward(self, x):
-        x = self.pool1(torch.relu(self.conv1(x)))
-        x = self.se1(x)
-        x = self.pool2(torch.relu(self.conv2(x)))
-        x = self.se2(x)
-        x = x.permute(0, 2, 1, 3, 4)
-        x = x.contiguous().view(x.size(0), x.size(1), -1)
-        _, (h_n, _) = self.lstm(x)
-        return self.fc(h_n[-1])
+        return self.model(x)
+
+    def adapt_to_application(self):
+        """
+        Bu metot, eğitilmiş ağırlıklar yüklendikten SONRA çağrılır.
+        Modeli tek kanallı girdi ve çok sınıflı çıktıya uyarlar.
+        """
+        # --- GİRİŞ KATMANINI UYARLAMA ---
+        # 3 kanallı eğitilmiş ağırlıkları alıp ortalamasını alarak
+        # tek kanallı yeni bir katman oluşturuyoruz.
+        original_first_layer = self.model.features[0][0]
+        original_weights = original_first_layer.weight.data
+        
+        new_first_layer = nn.Conv2d(1, original_first_layer.out_channels, 
+                                    kernel_size=original_first_layer.kernel_size, 
+                                    stride=original_first_layer.stride, 
+                                    padding=original_first_layer.padding)
+        
+        new_first_layer.weight.data = original_weights.mean(dim=1, keepdim=True)
+        if original_first_layer.bias is not None:
+            new_first_layer.bias.data = original_first_layer.bias.data
+            
+        self.model.features[0][0] = new_first_layer
+        
+        # --- ÇIKIŞ KATMANINI UYARLAMA ---
+        # Sınıflandırıcının sonundaki ikili (binary) katmanları söküp,
+        # yerine 3 sınıflı (multiclass) yeni bir katman takıyoruz.
+        num_ftrs_before_last = self.model.classifier[2][4].in_features # nn.Linear(128, 1) katmanının giriş boyutu
+        
+        # Eski sınıflandırıcının son iki katmanını (Linear(128,1) ve Sigmoid) at
+        self.model.classifier[2] = self.model.classifier[2][:-2]
+        
+        # Yeni çok sınıflı katmanı ekle
+        self.model.classifier[2].add_module("4", nn.Linear(num_ftrs_before_last, 3))

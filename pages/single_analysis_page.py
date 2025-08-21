@@ -13,7 +13,6 @@ from PyQt5.QtGui import QPixmap, QImage, QDragEnterEvent, QDragLeaveEvent, QDrop
 from workers import AnalysisWorker
 
 class SingleAnalysisPage(QWidget):
-    """Tekli analiz sayfası"""
     back_clicked = pyqtSignal()
     
     def __init__(self, modality, models, device, label_names):
@@ -23,7 +22,7 @@ class SingleAnalysisPage(QWidget):
         self.device = device
         self.label_names = label_names
         self.current_file = None
-        self.setAcceptDrops(True)  # Sürükle-bırak özelliğini etkinleştir
+        self.setAcceptDrops(True)
         self.setup_ui()
 
     def clear_layout(self, layout):
@@ -55,12 +54,13 @@ class SingleAnalysisPage(QWidget):
             if file_path.lower().endswith(supported_formats):
                 self.process_new_file(file_path)
             else:
-                QMessageBox.warning(self, "Desteklenmeyen Dosya", "Lütfen desteklenen bir görüntü dosyası (.dcm, .png, .jpg) sürükleyin.")
+                QMessageBox.warning(self, "Desteklenmeyen Dosya", "Desteklenen bir görüntü formatı seçin.")
                 self.dragLeaveEvent(None)
 
     def setup_ui(self):
-        main_layout = QVBoxLayout()
+        main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
+        # ... (setup_ui metodunun geri kalanı aynı)
         top_bar = QHBoxLayout()
         back_btn = QPushButton(" Geri")
         back_btn.setFixedSize(80, 35)
@@ -124,7 +124,6 @@ class SingleAnalysisPage(QWidget):
         right_layout.addWidget(self.result_area)
         content_layout.addWidget(right_panel)
         main_layout.addLayout(content_layout)
-        self.setLayout(main_layout)
 
     def process_new_file(self, file_path):
         self.current_file = file_path
@@ -153,7 +152,7 @@ class SingleAnalysisPage(QWidget):
                 image_array = dcm.pixel_array
             else:
                 image_array = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
-            image_array = ((image_array - image_array.min()) / (image_array.max() - image_array.min()) * 255).astype(np.uint8)
+            image_array = ((image_array - np.min(image_array)) / (np.max(image_array) - np.min(image_array)) * 255).astype(np.uint8)
             pil_image = Image.fromarray(image_array)
             pil_image.thumbnail((280, 280), Image.Resampling.LANCZOS)
             qimage = QImage(pil_image.tobytes(), pil_image.width, pil_image.height, QImage.Format_Grayscale8)
@@ -171,7 +170,10 @@ class SingleAnalysisPage(QWidget):
         self.progress_label.setAlignment(Qt.AlignCenter)
         self.progress_label.setStyleSheet("font-size: 14px; color: #3498db; margin: 20px;")
         self.result_layout.addWidget(self.progress_label)
-        self.worker = AnalysisWorker(self.models, self.device, file_path, self.label_names)
+        
+        # --- DÜZELTME BURADA ---
+        self.worker = AnalysisWorker(self.models, self.device, file_path, self.label_names, self.modality)
+        
         self.worker.progress.connect(self.update_progress)
         self.worker.finished.connect(self.show_results)
         self.worker.error.connect(self.show_error)
@@ -182,6 +184,7 @@ class SingleAnalysisPage(QWidget):
 
     def show_results(self, prediction, confidence, probabilities):
         self.clear_layout(self.result_layout)
+        # ... (show_results metodunun geri kalanı aynı)
         success_label = QLabel(" Analiz Tamamlandı!")
         success_label.setAlignment(Qt.AlignCenter)
         success_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #27ae60; margin: 10px;")
@@ -215,6 +218,7 @@ class SingleAnalysisPage(QWidget):
 
     def show_error(self, error_message):
         self.clear_layout(self.result_layout)
+        # ... (show_error metodunun geri kalanı aynı)
         error_label = QLabel(" Analiz Hatası")
         error_label.setAlignment(Qt.AlignCenter)
         error_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #e74c3c; margin: 20px;")
