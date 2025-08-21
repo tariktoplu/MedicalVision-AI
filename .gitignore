@@ -2,5 +2,5 @@ venv/
 __pycache__/
 results.csv
 Dataset/
-Models/MR/best_model.pt
-Models/BT/best_model_convnext_tiny_dataset6_FNPS.pth
+Models/**/*.pt
+Models/**/*.pth
