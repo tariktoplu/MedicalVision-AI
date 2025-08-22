@@ -18,19 +18,11 @@ class MedicalImageAnalyzer(QMainWindow):
         
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        self.mr_models = self._load_models_from_path(
-            model_path="Models/MR", 
-            model_class=MedNet,
-            label="MR"
-        )
-        self.bt_models = self._load_models_from_path(
-            model_path="Models/BT",
-            model_class=BT_ConvNeXt,
-            label="BT"
-        )
+        self.mr_models = self._load_models_from_path("Models/MR", MedNet, "MR")
+        self.bt_models = self._load_models_from_path("Models/BT", BT_ConvNeXt, "BT")
         
         self.label_names_mr = ['HiperakutAkut', 'Subakut', 'NormalKronik']
-        self.label_names_bt = ['Sağlıklı', 'İnme', 'Diğer'] 
+        self.label_names_bt = ['Sağlıklı', 'İnme']
         
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
@@ -49,77 +41,66 @@ class MedicalImageAnalyzer(QMainWindow):
         if not os.path.isdir(model_path):
             QMessageBox.critical(None, f"{label} Model Hatası", f"'{model_path}' klasörü bulunamadı!")
             return models
-
         try:
             model_files = [f for f in os.listdir(model_path) if f.endswith(('.pt', '.pth'))]
             if not model_files:
-                print(f"Uyarı: '{model_path}' klasöründe yüklenecek model dosyası bulunamadı.")
+                print(f"Uyarı: '{model_path}' klasöründe model dosyası bulunamadı.")
                 return models
-
             for model_file in model_files:
                 path = os.path.join(model_path, model_file)
                 
-                # 1. Modeli oluştur
+                # 1. Modeli orijinal mimarisiyle oluştur
                 model = model_class()
                 
-                # 2. Ağırlıkları yükle
+                # 2. Orijinal mimariye ağırlıkları yükle
                 model.load_state_dict(torch.load(path, map_location=self.device))
                 
                 # --- ÇOK ÖNEMLİ ADIM ---
-                # 3. Eğer bu bir BT modeli ise, uygulamaya adapte et
+                # 3. Eğer bu bir BT modeli ise, ağırlıklar yüklendikten SONRA
+                #    giriş katmanını tek kanala adapte et
                 if label == "BT":
-                    model.adapt_to_application()
+                    model.adapt_grayscale_input()
 
                 # 4. Modeli cihaza taşı ve eval moduna al
                 model.to(self.device)
                 model.eval()
                 models.append(model)
                 print(f"'{path}' başarıyla yüklendi ve uygulamaya uyarlandı.")
-            
             print(f"Toplam {len(models)} adet {label} modeli başarıyla yüklendi.")
         except Exception as e:
             QMessageBox.critical(None, f"{label} Model Yükleme Hatası", f"Modeller yüklenirken hata oluştu:\n{str(e)}")
-        
         return models
 
     def show_analysis_page(self, modality, mode):
         if modality == "MR":
-            models_to_use = self.mr_models
-            labels_to_use = self.label_names_mr
+            models_to_use, labels_to_use = self.mr_models, self.label_names_mr
         elif modality == "BT":
-            models_to_use = self.bt_models
-            labels_to_use = self.label_names_bt
-        else:
-            return
+            models_to_use, labels_to_use = self.bt_models, self.label_names_bt
+        else: return
 
         if not models_to_use:
             QMessageBox.warning(self, "Model Eksik", f"'{modality}' için yüklenmiş model bulunamadı.")
             return
 
-        if mode == "single":
-            analysis_page = SingleAnalysisPage(modality, models_to_use, self.device, labels_to_use)
-        else:
-            analysis_page = MultiAnalysisPage(modality, models_to_use, self.device, labels_to_use)
-        
+        page_class = SingleAnalysisPage if mode == "single" else MultiAnalysisPage
+        analysis_page = page_class(modality, models_to_use, self.device, labels_to_use)
         analysis_page.back_clicked.connect(self.show_start_page)
         self.stack.addWidget(analysis_page)
         self.stack.setCurrentWidget(analysis_page)
     
-    # ... (Geri kalan metotlar aynı) ...
+    # ... (geri kalan metotlar aynı)
     def show_mode_page(self, modality):
         mode_page = AnalysisModePage(modality)
         mode_page.mode_selected.connect(self.show_analysis_page)
         mode_page.back_clicked.connect(self.show_start_page)
         self.stack.addWidget(mode_page)
         self.stack.setCurrentWidget(mode_page)
-    
     def show_start_page(self):
         while self.stack.count() > 1:
             widget = self.stack.widget(1)
             self.stack.removeWidget(widget)
             widget.deleteLater()
         self.stack.setCurrentWidget(self.start_page)
-
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Medikal Görüntü Analiz Sistemi")
@@ -127,6 +108,5 @@ def main():
     window = MedicalImageAnalyzer()
     window.show()
     sys.exit(app.exec_())
-
 if __name__ == "__main__":
     main()
