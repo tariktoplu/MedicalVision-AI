@@ -23,24 +23,6 @@ class MultiAnalysisPage(QWidget):
         self.setAcceptDrops(True)
         self.setup_ui()
     
-    # ... (setup_ui ve diğer metotlar) ...
-    def start_analysis(self):
-        if not self.file_paths: return
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setMaximum(len(self.file_paths))
-        self.progress_bar.setValue(0)
-        self.progress_bar.setFormat("%p%")
-        self.right_stack.setCurrentWidget(self.initial_summary_widget)
-        
-        # --- DÜZELTME BURADA ---
-        self.worker = MultiAnalysisWorker(self.models, self.device, self.file_paths, self.label_names, self.modality)
-        
-        self.worker.file_progress.connect(self.update_file_result)
-        self.worker.file_error.connect(self.update_file_error)
-        self.worker.all_finished.connect(self.analysis_finished)
-        self.worker.start()
-
-    # ... (Geri kalan tüm metotlar aynı kalabilir) ...
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
@@ -114,11 +96,11 @@ class MultiAnalysisPage(QWidget):
         left_layout.addLayout(button_layout)
         
         self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(['Dosya Adı', 'Durum', 'Tahmin', 'Güven (%)'])
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(['Dosya Adı', 'Durum', 'Tahmin'])
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.Stretch)
-        for i in range(1, 4): header.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+        for i in range(1, 3): header.setSectionResizeMode(i, QHeaderView.ResizeToContents)
         self.table.setStyleSheet("""
             QTableWidget { gridline-color: #e0e0e0; border: 1px solid #e0e0e0; border-radius: 8px; }
             QHeaderView::section { background-color: #f2f2f2; padding: 8px; border: none; font-weight: bold; color: #34495e; }
@@ -191,7 +173,6 @@ class MultiAnalysisPage(QWidget):
             self.table.setItem(i, 0, QTableWidgetItem(file_name))
             self.set_status_badge(i, "Bekliyor", "#f39c12")
             self.table.setItem(i, 2, QTableWidgetItem("-"))
-            self.table.setItem(i, 3, QTableWidgetItem("-"))
 
     def set_status_badge(self, row, text, color):
         item = QTableWidgetItem(text)
@@ -202,17 +183,36 @@ class MultiAnalysisPage(QWidget):
         font.setBold(True)
         item.setFont(font)
         self.table.setItem(row, 1, item)
+    
+    def start_analysis(self):
+        if not self.file_paths: return
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setMaximum(len(self.file_paths))
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat("%p%")
+        self.right_stack.setCurrentWidget(self.initial_summary_widget)
+        
+        self.worker = MultiAnalysisWorker(self.models, self.device, self.file_paths, self.label_names, self.modality)
+        self.worker.file_progress.connect(self.update_file_result)
+        self.worker.file_error.connect(self.update_file_error)
+        self.worker.all_finished.connect(self.analysis_finished)
+        self.worker.start()
 
-    def update_file_result(self, index, prediction, confidence, probabilities):
+    # --- DEĞİŞTİ: Metot imzası yeni sinyale uyumlu hale getirildi ---
+    def update_file_result(self, index, prediction, probabilities):
         self.set_status_badge(index, "Tamamlandı", "#27ae60")
         self.table.setItem(index, 2, QTableWidgetItem(prediction))
-        self.table.setItem(index, 3, QTableWidgetItem(f"{confidence:.1f}"))
+        
+        pred_item = self.table.item(index, 2)
+        pred_item.setForeground(QColor("#c0392b"))
+        pred_item.setFont(QFont("Arial", -1, QFont.Bold))
+        
         self.progress_bar.setValue(self.progress_bar.value() + 1)
 
     def update_file_error(self, index, error_message):
         self.set_status_badge(index, "Hata", "#e74c3c")
         self.table.setItem(index, 2, QTableWidgetItem("Hata oluştu"))
-        self.table.setItem(index, 3, QTableWidgetItem("-"))
+        
         self.progress_bar.setValue(self.progress_bar.value() + 1)
 
     def analysis_finished(self):

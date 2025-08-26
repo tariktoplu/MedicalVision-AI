@@ -146,18 +146,29 @@ class SingleAnalysisPage(QWidget):
 
     def show_preview(self, file_path):
         try:
+            image_array_8bit = None
             if file_path.lower().endswith('.dcm'):
                 dcm = pydicom.dcmread(file_path)
-                image_array = dcm.pixel_array
+                pixels = dcm.pixel_array.astype(float)
+                pixels = (pixels - np.min(pixels)) / (np.max(pixels) - np.min(pixels) + 1e-6)
+                image_array_8bit = (pixels * 255).astype(np.uint8)
             else:
-                image_array = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
-            image_array = ((image_array - np.min(image_array)) / (np.max(image_array) - np.min(image_array) + 1e-6) * 255).astype(np.uint8)
-            pil_image = Image.fromarray(image_array)
+                image_array_8bit = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
+
+            if image_array_8bit is None:
+                raise ValueError("Görüntü verisi okunamadı.")
+            
+            pil_image = Image.fromarray(image_array_8bit)
             pil_image.thumbnail((280, 280), Image.Resampling.LANCZOS)
-            qimage = QImage(pil_image.tobytes(), pil_image.width, pil_image.height, QImage.Format_Grayscale8)
+            
+            # --- DÜZELTME BURADA ---
+            # 'bytesPerLine' argümanı için n_frames yerine sadece genişliği kullan
+            qimage = QImage(pil_image.tobytes(), pil_image.width, pil_image.height, pil_image.width, QImage.Format_Grayscale8)
             pixmap = QPixmap.fromImage(qimage)
+            
             self.preview_label.setPixmap(pixmap)
             self.preview_label.setStyleSheet("border: 2px solid #27ae60; border-radius: 8px;")
+            
         except Exception as e:
             self.preview_label.setText(f"Önizleme hatası:\n{str(e)}")
             self.preview_label.setStyleSheet("border: 2px solid #e74c3c; border-radius: 8px; color: red;")
@@ -178,7 +189,6 @@ class SingleAnalysisPage(QWidget):
     def update_progress(self, message):
         self.progress_label.setText(f" {message}")
 
-    # --- DEĞİŞTİ: Metot imzası yeni sinyale uyumlu hale getirildi ---
     def show_results(self, prediction, probabilities):
         self.clear_layout(self.result_layout)
         success_label = QLabel(" Analiz Tamamlandı!")
