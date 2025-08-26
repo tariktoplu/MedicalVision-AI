@@ -46,17 +46,8 @@ class AnalysisWorker(QThread):
                         outputs.append(output.cpu().numpy()[0][0])
                 
                 avg_prob_stroke = np.mean(outputs)
-                
-                # Olasılıkları bir liste olarak tutalım: [Sağlıklı Olasılığı, İnme Olasılığı]
                 all_probabilities_raw = [1 - avg_prob_stroke, avg_prob_stroke]
-                
-                # --- YENİ MANTIK: Hangi olasılık daha yüksekse, o sınıfı seç ---
-                # np.argmax, en yüksek değerin indeksini döndürür.
-                # Eğer Sağlıklı olasılığı (%52) İnme olasılığından (%48) yüksekse 0 döndürür.
-                # Eğer İnme olasılığı (%60) Sağlıklı olasılığından (%40) yüksekse 1 döndürür.
                 predicted_class_idx = np.argmax(all_probabilities_raw)
-                
-                # Olasılıkları yüzdeye çevir
                 all_probabilities = [p * 100 for p in all_probabilities_raw]
 
             predicted_label = self.label_names[predicted_class_idx]
@@ -65,32 +56,47 @@ class AnalysisWorker(QThread):
         except Exception as e:
             self.error.emit(f"Analiz hatası: {str(e)}")
     
+    # --- BU METOT, EĞİTİM ORTAMIYLA %100 UYUMLU OLACAK ŞEKİLDE YENİDEN YAZILDI ---
     def preprocess_image(self, file_path):
         try:
+            # 1. Görüntüyü bir numpy dizisi olarak oku
             if file_path.lower().endswith('.dcm'):
                 dcm = pydicom.dcmread(file_path)
-                array = dcm.pixel_array
-                array = (array - np.min(array)) / (np.max(array) - np.min(array) + 1e-6) * 255
-                pil_image = Image.fromarray(array.astype(np.uint8)).convert("L")
+                image_array = dcm.pixel_array
             else:
-                pil_image = Image.open(file_path).convert("L")
+                # PIL, standart formatları okumak için en güvenilir yoldur
+                pil_img = Image.open(file_path)
+                image_array = np.array(pil_img)
+
+            # 2. Görüntüyü 8-bit grayscale PIL Image nesnesine dönüştür
+            # Bu adım, tüm girdi tiplerini standart bir formata getirir.
+            # DICOM'dan gelen yüksek bit derinlikli veriyi 0-255 arasına haritalar.
+            if image_array.dtype != np.uint8:
+                 array_normalized = (image_array - np.min(image_array)) / (np.max(image_array) - np.min(image_array) + 1e-6)
+                 image_array = (array_normalized * 255).astype(np.uint8)
+
+            pil_image = Image.fromarray(image_array).convert("L")
             
+            # 3. Modaliteye göre, EĞİTİMDEKİYLE BİREBİR AYNI transform'u uygula
             if self.modality == 'MR':
+                # mednet.py'deki mantık: 256x256, 0-1 arası float tensör
                 transform = transforms.Compose([
                     transforms.Resize((256, 256)),
-                    transforms.ToTensor(),
+                    transforms.ToTensor(), # Değerleri [0, 1] arasına getirir
                 ])
                 tensor_slice = transform(pil_image)
+                
                 depth = 16
                 slices = [tensor_slice for _ in range(depth)]
                 tensor = torch.stack(slices, dim=1)
                 return tensor.unsqueeze(0)
             
             elif self.modality == 'BT':
+                # ConvNext_Tiny.py'deki transform'un AYNISI
                 transform = transforms.Compose([
                     transforms.Resize((224, 224)),
-                    transforms.ToTensor(),
-                    transforms.Normalize([0.5], [0.5])
+                    transforms.ToTensor(), # Değerleri [0, 1] arasına getirir
+                    transforms.Normalize([0.5], [0.5]) # Değerleri [-1, 1] arasına getirir
                 ])
                 tensor = transform(pil_image)
                 return tensor.unsqueeze(0)
@@ -100,7 +106,11 @@ class AnalysisWorker(QThread):
         except Exception as e:
             raise Exception(f"Görüntü işleme hatası: {str(e)}")
 
+
 class MultiAnalysisWorker(QThread):
+    # Bu sınıfın da preprocess_image metodunu güncelleyelim.
+    # En kolayı, yukarıdaki AnalysisWorker.preprocess_image metodunu kopyalamaktır.
+    
     file_progress = pyqtSignal(int, str, list)
     file_error = pyqtSignal(int, str)
     all_finished = pyqtSignal()
@@ -114,11 +124,11 @@ class MultiAnalysisWorker(QThread):
         self.modality = modality
 
     def run(self):
+        # ... (run metodu önceki doğru haliyle aynı, değişiklik yok)
         for i, file_path in enumerate(self.file_paths):
             try:
                 image_tensor = self.preprocess_image(file_path)
                 image_tensor_gpu = image_tensor.to(self.device)
-                
                 if self.modality == 'MR':
                     predictions = []
                     with torch.no_grad():
@@ -129,37 +139,35 @@ class MultiAnalysisWorker(QThread):
                     avg_prediction = np.mean(predictions, axis=0)
                     predicted_class_idx = np.argmax(avg_prediction)
                     all_probabilities = (avg_prediction * 100).tolist()
-                
                 elif self.modality == 'BT':
                     outputs = []
                     with torch.no_grad():
                         for model in self.models:
                             output = model(image_tensor_gpu)
                             outputs.append(output.cpu().numpy()[0][0])
-                    
                     avg_prob_stroke = np.mean(outputs)
                     all_probabilities_raw = [1 - avg_prob_stroke, avg_prob_stroke]
                     predicted_class_idx = np.argmax(all_probabilities_raw)
                     all_probabilities = [p * 100 for p in all_probabilities_raw]
-
                 predicted_label = self.label_names[predicted_class_idx]
                 self.file_progress.emit(i, predicted_label, all_probabilities)
-                
             except Exception as e:
                 self.file_error.emit(i, str(e))
-        
         self.all_finished.emit()
 
     def preprocess_image(self, file_path):
+        # AnalysisWorker'daki ile BİREBİR AYNI metodu kullanıyoruz
         try:
             if file_path.lower().endswith('.dcm'):
                 dcm = pydicom.dcmread(file_path)
-                array = dcm.pixel_array
-                array = (array - np.min(array)) / (np.max(array) - np.min(array) + 1e-6) * 255
-                pil_image = Image.fromarray(array.astype(np.uint8)).convert("L")
+                image_array = dcm.pixel_array
             else:
-                pil_image = Image.open(file_path).convert("L")
-            
+                pil_img = Image.open(file_path)
+                image_array = np.array(pil_img)
+            if image_array.dtype != np.uint8:
+                 array_normalized = (image_array - np.min(image_array)) / (np.max(image_array) - np.min(image_array) + 1e-6)
+                 image_array = (array_normalized * 255).astype(np.uint8)
+            pil_image = Image.fromarray(image_array).convert("L")
             if self.modality == 'MR':
                 transform = transforms.Compose([
                     transforms.Resize((256, 256)),
@@ -170,7 +178,6 @@ class MultiAnalysisWorker(QThread):
                 slices = [tensor_slice for _ in range(depth)]
                 tensor = torch.stack(slices, dim=1)
                 return tensor.unsqueeze(0)
-            
             elif self.modality == 'BT':
                 transform = transforms.Compose([
                     transforms.Resize((224, 224)),
@@ -179,7 +186,6 @@ class MultiAnalysisWorker(QThread):
                 ])
                 tensor = transform(pil_image)
                 return tensor.unsqueeze(0)
-            
             else:
                 raise ValueError("Geçersiz modalite.")
         except Exception as e:
