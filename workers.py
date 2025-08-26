@@ -64,23 +64,32 @@ class AnalysisWorker(QThread):
                 image_array = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE).astype(np.float32)
             
             if self.modality == 'MR':
-                # --- MR İÇİN ORİJİNAL, KANITLANMIŞ VE ÇALIŞAN KODA GERİ DÖNÜLDÜ ---
-                mean = np.mean(image_array)
-                std = np.std(image_array)
-                # Standart sapmanın sıfır olma ihtimaline karşı kontrol
-                if std > 0:
-                    image_array_normalized = (image_array - mean) / std
+                if hasattr(dcm, 'NumberOfFrames') and dcm.NumberOfFrames >= 16:
+                    slices = []
+                    for i in range(16):
+                        frame = dcm.pixel_array[i].astype(np.float32)
+                        mean = np.mean(frame)
+                        std = np.std(frame)
+                        if std > 0:
+                            frame_norm = (frame - mean) / std
+                        else:
+                            frame_norm = frame - mean
+                        frame_resized = cv2.resize(frame_norm, (256, 256))
+                        slices.append(torch.tensor(frame_resized, dtype=torch.float32))
+                    tensor = torch.stack(slices).unsqueeze(0)
+                    return tensor.unsqueeze(0)
                 else:
-                    image_array_normalized = image_array - mean
-                
-                image_array_resized = cv2.resize(image_array_normalized, (256, 256))
-                
-                depth = 16
-                slices = [torch.tensor(image_array_resized, dtype=torch.float32) for _ in range(depth)]
-                tensor = torch.stack(slices).unsqueeze(0) # Shape: (1, 16, 256, 256)
-                
-                # MedNet modeli (1, 1, 16, 256, 256) beklediği için kanal boyutu ekle
-                return tensor.unsqueeze(0) 
+                    # Tek slice varsa eski yöntem
+                    mean = np.mean(image_array)
+                    std = np.std(image_array)
+                    if std > 0:
+                        image_array_normalized = (image_array - mean) / std
+                    else:
+                        image_array_normalized = image_array - mean
+                    image_array_resized = cv2.resize(image_array_normalized, (256, 256))
+                    slices = [torch.tensor(image_array_resized, dtype=torch.float32) for _ in range(16)]
+                    tensor = torch.stack(slices).unsqueeze(0)
+                    return tensor.unsqueeze(0) 
             
             elif self.modality == 'BT':
                 # --- BT İÇİN DOĞRU YÖNTEM KORUNDU ---
