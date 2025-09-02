@@ -94,10 +94,9 @@ class AnalysisWorker(QThread):
     def preprocess_image(self, file_path):
         try:
             if self.modality == 'MR':
-                # --- MR İÇİN Testt.py MANTIĞI UYGULANDI (Seri bazlı okuma) ---
+                # --- Testt.py'deki MANTIĞIN BİREBİR UYGULANMASI ---
                 depth = 16
                 slices = []
-                
                 series_dir = os.path.dirname(file_path)
                 dcm_files = sorted([f for f in os.listdir(series_dir) if f.lower().endswith('.dcm')])
                 
@@ -108,7 +107,6 @@ class AnalysisWorker(QThread):
                         dcm = pydicom.dcmread(os.path.join(series_dir, fname))
                         img = dcm.pixel_array.astype(np.float32)
                         
-                        # Testt.py'deki gibi, her dilim kendi içinde normalize edilir
                         img = (img - img.min()) / (img.max() - img.min() + 1e-6)
                         
                         img_resized = np.array(Image.fromarray((img * 255).astype(np.uint8)).resize((256, 256)))
@@ -116,22 +114,19 @@ class AnalysisWorker(QThread):
                         slices.append(tensor)
                     except Exception:
                         continue
-                
+
                 while len(slices) < depth:
                     slices.append(torch.zeros((256, 256), dtype=torch.float32))
 
-                volume = torch.stack(slices).unsqueeze(0)
-                # Testt.py'de model (1, 16, 256, 256) bekliyor
-                # DataLoader bunu (batch, 1, 16, 256, 256) yapıyor.
-                # Bizim de batch boyutu eklememiz lazım.
-                return volume.unsqueeze(0)
+                volume = torch.stack(slices).unsqueeze(0) # Shape: (1, 16, 256, 256)
+                return volume.unsqueeze(0) # DataLoader olmadığı için batch boyutu ekle: (1, 1, 16, 256, 256)
             
             elif self.modality == 'BT':
                 # Test.py'nin mantığı: DICOM windowing ve 3 kanala çevirme
                 ds = pydicom.dcmread(file_path, force=True)
                 arr = _window_image(ds)
                 pil_image = Image.fromarray(arr).convert('RGB')
-
+                
                 transform = transforms.Compose([
                     transforms.Resize((224, 224)),
                     transforms.ToTensor(),
@@ -190,7 +185,6 @@ class MultiAnalysisWorker(QThread):
                 self.file_progress.emit(i, predicted_label, all_probabilities)
             except Exception as e:
                 self.file_error.emit(i, str(e))
-        
         self.all_finished.emit()
 
     def preprocess_image(self, file_path):
