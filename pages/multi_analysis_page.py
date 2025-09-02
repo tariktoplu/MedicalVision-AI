@@ -4,13 +4,45 @@ import os
 from collections import Counter
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame, 
                              QScrollArea, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem, 
-                             QHeaderView, QAbstractItemView, QProgressBar, QSplitter, QStyle, QStackedWidget)
-from PyQt5.QtCore import Qt, pyqtSignal, QSize
-from PyQt5.QtGui import QColor, QFont, QDragEnterEvent, QDragLeaveEvent, QDropEvent, QIcon
+                             QHeaderView, QAbstractItemView, QProgressBar, QSplitter, QStyle, 
+                             QStackedWidget, QApplication)
+from PyQt5.QtCore import Qt, pyqtSignal, QThread, QSize
+from PyQt5.QtGui import (QColor, QFont, QDragEnterEvent, QDragLeaveEvent, QDropEvent, QIcon,
+                         QCursor)
 
 from workers import MultiAnalysisWorker
 
+# === KLASÖR TARAMA İŞÇİSİ ===
+class FolderScannerWorker(QThread):
+    """Verilen yolları arka planda tarayarak .dcm dosyalarını bulan işçi."""
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
+
+    def __init__(self, paths_to_scan):
+        super().__init__()
+        self.paths = paths_to_scan
+
+    def run(self):
+        try:
+            all_files = []
+            for path in self.paths:
+                if os.path.isdir(path):
+                    for root, _, files in os.walk(path):
+                        for file in files:
+                            if file.lower().endswith('.dcm'):
+                                all_files.append(os.path.join(root, file))
+                elif os.path.isfile(path) and path.lower().endswith('.dcm'):
+                    all_files.append(path)
+            
+            # Tekrarları kaldır ve sırala
+            unique_sorted_files = sorted(list(set(all_files)))
+            self.finished.emit(unique_sorted_files)
+        except Exception as e:
+            self.error.emit(f"Klasör taranırken bir hata oluştu: {str(e)}")
+
+
 class MultiAnalysisPage(QWidget):
+    """Çoklu analiz sayfası (klasör yükleme destekli)"""
     back_clicked = pyqtSignal()
     
     def __init__(self, modality, models, device, label_names):
@@ -20,6 +52,7 @@ class MultiAnalysisPage(QWidget):
         self.device = device
         self.label_names = label_names
         self.file_paths = []
+        self.scanner_worker = None # Worker'ı referans olarak tut
         self.setAcceptDrops(True)
         self.setup_ui()
     
@@ -27,22 +60,15 @@ class MultiAnalysisPage(QWidget):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
             self.left_panel.setStyleSheet(self.style_sheet_drop_active)
-
+            
     def dragLeaveEvent(self, event: QDragLeaveEvent):
         self.left_panel.setStyleSheet(self.style_sheet_default)
-
+        
     def dropEvent(self, event: QDropEvent):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
-            dropped_files = [url.toLocalFile() for url in event.mimeData().urls()]
-            supported_formats = ('.dcm', '.png', '.jpg', '.jpeg', '.bmp')
-            valid_files = [f for f in dropped_files if f.lower().endswith(supported_formats)]
-            
-            if valid_files:
-                self.process_new_files(valid_files)
-            else:
-                QMessageBox.warning(self, "Desteklenmeyen Dosyalar", "Desteklenen bir görüntü formatı seçin.")
-        
+            paths = [url.toLocalFile() for url in event.mimeData().urls()]
+            self.handle_paths(paths)
         self.left_panel.setStyleSheet(self.style_sheet_default)
 
     def setup_ui(self):
@@ -52,6 +78,7 @@ class MultiAnalysisPage(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
         
+        # Üst Bar
         top_bar = QHBoxLayout()
         back_icon = self.style().standardIcon(QStyle.SP_ArrowLeft)
         back_btn = QPushButton(back_icon, " Geri")
@@ -59,34 +86,42 @@ class MultiAnalysisPage(QWidget):
         back_btn.setStyleSheet("QPushButton { font-size: 14px; background-color: #7f8c8d; color: white; border: none; border-radius: 8px; } QPushButton:hover { background-color: #95a5a6; }")
         back_btn.clicked.connect(self.back_clicked.emit)
         top_bar.addWidget(back_btn)
-
+        
         title = QLabel(f"{self.modality} - Çoklu Analiz")
         title.setStyleSheet("font-size: 22px; font-weight: bold; color: #2c3e50; margin-left: 15px;")
         top_bar.addWidget(title)
-        
         top_bar.addStretch()
         main_layout.addLayout(top_bar)
-
+        
+        # Ana Bölücü (Splitter)
         splitter = QSplitter(Qt.Horizontal)
         
+        # Sol Panel
         self.left_panel = QFrame()
         self.left_panel.setStyleSheet(self.style_sheet_default)
         left_layout = QVBoxLayout(self.left_panel)
         left_layout.setContentsMargins(15, 15, 15, 15)
         
-        upload_area_label = QLabel("Dosyaları Buraya Sürükleyin")
+        upload_area_label = QLabel("Dosyaları veya Klasörleri Buraya Sürükleyin")
         upload_area_label.setAlignment(Qt.AlignCenter)
         upload_area_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #34495e; margin-bottom: 10px;")
         left_layout.addWidget(upload_area_label)
         
         button_layout = QHBoxLayout()
         upload_icon = self.style().standardIcon(QStyle.SP_DialogOpenButton)
-        self.upload_btn = QPushButton(upload_icon, " Dosya Seç...")
-        self.upload_btn.setFixedHeight(40)
-        self.upload_btn.setStyleSheet("QPushButton { font-size: 14px; background-color: #3498db; color: white; border-radius: 8px; padding: 5px; } QPushButton:hover { background-color: #5dade2; }")
-        self.upload_btn.clicked.connect(self.upload_files_from_dialog)
-        button_layout.addWidget(self.upload_btn)
-
+        self.upload_file_btn = QPushButton(upload_icon, " Dosya Seç...")
+        self.upload_file_btn.setFixedHeight(40)
+        self.upload_file_btn.setStyleSheet("QPushButton { font-size: 14px; background-color: #3498db; color: white; border-radius: 8px; padding: 5px; } QPushButton:hover { background-color: #5dade2; }")
+        self.upload_file_btn.clicked.connect(self.upload_files_from_dialog)
+        button_layout.addWidget(self.upload_file_btn)
+        
+        upload_folder_icon = self.style().standardIcon(QStyle.SP_DirOpenIcon)
+        self.upload_folder_btn = QPushButton(upload_folder_icon, " Klasör Seç...")
+        self.upload_folder_btn.setFixedHeight(40)
+        self.upload_folder_btn.setStyleSheet("QPushButton { font-size: 14px; background-color: #1abc9c; color: white; border-radius: 8px; padding: 5px; } QPushButton:hover { background-color: #2fe2bf; }")
+        self.upload_folder_btn.clicked.connect(self.upload_folder_from_dialog)
+        button_layout.addWidget(self.upload_folder_btn)
+        
         clear_icon = self.style().standardIcon(QStyle.SP_TrashIcon)
         self.clear_btn = QPushButton(clear_icon, " Listeyi Temizle")
         self.clear_btn.setFixedHeight(40)
@@ -101,10 +136,6 @@ class MultiAnalysisPage(QWidget):
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.Stretch)
         for i in range(1, 3): header.setSectionResizeMode(i, QHeaderView.ResizeToContents)
-        self.table.setStyleSheet("""
-            QTableWidget { gridline-color: #e0e0e0; border: 1px solid #e0e0e0; border-radius: 8px; }
-            QHeaderView::section { background-color: #f2f2f2; padding: 8px; border: none; font-weight: bold; color: #34495e; }
-        """)
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         left_layout.addWidget(self.table)
@@ -117,7 +148,8 @@ class MultiAnalysisPage(QWidget):
             QProgressBar::chunk { background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #27ae60, stop:1 #2ecc71); border-radius: 8px; }
         """)
         left_layout.addWidget(self.progress_bar)
-
+        
+        # Sağ Panel
         right_panel = QFrame()
         right_panel.setStyleSheet(self.style_sheet_default)
         right_layout = QVBoxLayout(right_panel)
@@ -131,7 +163,6 @@ class MultiAnalysisPage(QWidget):
         icon = self.style().standardIcon(QStyle.SP_FileDialogDetailedView)
         summary_icon.setPixmap(icon.pixmap(QSize(80, 80)))
         summary_icon.setAlignment(Qt.AlignCenter)
-        summary_icon.setStyleSheet("margin-bottom: 20px;")
         initial_layout.addWidget(summary_icon)
         initial_msg = QLabel("Analiz Sonuçları Özeti Burada Görüntülenecek")
         initial_msg.setAlignment(Qt.AlignCenter)
@@ -143,29 +174,70 @@ class MultiAnalysisPage(QWidget):
         self.results_layout = QVBoxLayout(self.results_summary_widget)
         self.results_layout.setContentsMargins(20, 20, 20, 20)
         self.results_layout.setAlignment(Qt.AlignTop)
-
+        
         self.right_stack.addWidget(self.initial_summary_widget)
         self.right_stack.addWidget(self.results_summary_widget)
         right_layout.addWidget(self.right_stack)
-
+        
         splitter.addWidget(self.left_panel)
         splitter.addWidget(right_panel)
         splitter.setSizes([700, 400])
         splitter.setStyleSheet("QSplitter::handle { background-color: #ecf0f1; } QSplitter::handle:hover { background-color: #bdc3c7; }")
         main_layout.addWidget(splitter, 1)
 
+    def handle_paths(self, paths):
+        """Verilen yolları arka planda taramak için bir işçi başlatır."""
+        self.set_ui_enabled(False)
+        QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
+        
+        self.scanner_worker = FolderScannerWorker(paths)
+        self.scanner_worker.finished.connect(self.on_scanning_finished)
+        self.scanner_worker.error.connect(self.on_scanning_error)
+        self.scanner_worker.start()
+
+    def on_scanning_finished(self, found_files):
+        """Tarama işçisi bitince dosyaları işler."""
+        QApplication.restoreOverrideCursor()
+        self.set_ui_enabled(True)
+        
+        if found_files:
+            self.process_new_files(found_files)
+        else:
+            QMessageBox.warning(self, "Dosya Bulunamadı", "Seçilen konumlarda desteklenen formatta (.dcm) bir görüntü bulunamadı.")
+    
+    def on_scanning_error(self, error_message):
+        """Tarama sırasında hata olursa tetiklenir."""
+        QApplication.restoreOverrideCursor()
+        self.set_ui_enabled(True)
+        QMessageBox.critical(self, "Tarama Hatası", error_message)
+
+    def set_ui_enabled(self, enabled):
+        """Arayüzü kilitlemek/açmak için kullanılır."""
+        self.upload_file_btn.setEnabled(enabled)
+        self.upload_folder_btn.setEnabled(enabled)
+        self.clear_btn.setEnabled(enabled)
+
     def process_new_files(self, file_paths):
+        """Yeni bulunan dosyaları tabloya ekler ve analizi başlatır."""
         self.file_paths = file_paths
         self.populate_table()
         self.start_analysis()
 
     def upload_files_from_dialog(self):
-        file_types = "Tüm Desteklenen (*.dcm *.png *.jpg *.jpeg *.bmp);;DICOM (*.dcm);;Görüntü (*.png *.jpg *.jpeg *.bmp)"
+        """Dosya seçme diyalogunu açar."""
+        file_types = "DICOM Dosyaları (*.dcm);;Tüm Dosyalar (*)"
         file_paths, _ = QFileDialog.getOpenFileNames(self, f"{self.modality} Dosyalarını Seç", "", file_types)
         if file_paths:
-            self.process_new_files(file_paths)
+            self.handle_paths(file_paths)
+
+    def upload_folder_from_dialog(self):
+        """Klasör seçme diyalogunu açar."""
+        folder_path = QFileDialog.getExistingDirectory(self, f"{self.modality} Klasörünü Seç")
+        if folder_path:
+            self.handle_paths([folder_path])
 
     def populate_table(self):
+        """Tabloyu dosyalarla doldurur."""
         self.table.clearContents()
         self.table.setRowCount(len(self.file_paths))
         for i, file_path in enumerate(self.file_paths):
@@ -175,6 +247,7 @@ class MultiAnalysisPage(QWidget):
             self.table.setItem(i, 2, QTableWidgetItem("-"))
 
     def set_status_badge(self, row, text, color):
+        """Tablodaki durum rozetini ayarlar."""
         item = QTableWidgetItem(text)
         item.setTextAlignment(Qt.AlignCenter)
         item.setBackground(QColor(color))
@@ -185,7 +258,10 @@ class MultiAnalysisPage(QWidget):
         self.table.setItem(row, 1, item)
     
     def start_analysis(self):
+        """Analizi başlatır."""
         if not self.file_paths: return
+        
+        self.set_ui_enabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setMaximum(len(self.file_paths))
         self.progress_bar.setValue(0)
@@ -198,8 +274,8 @@ class MultiAnalysisPage(QWidget):
         self.worker.all_finished.connect(self.analysis_finished)
         self.worker.start()
 
-    # --- DEĞİŞTİ: Metot imzası yeni sinyale uyumlu hale getirildi ---
     def update_file_result(self, index, prediction, probabilities):
+        """Tablodaki bir dosyanın sonucunu günceller."""
         self.set_status_badge(index, "Tamamlandı", "#27ae60")
         self.table.setItem(index, 2, QTableWidgetItem(prediction))
         
@@ -210,27 +286,28 @@ class MultiAnalysisPage(QWidget):
         self.progress_bar.setValue(self.progress_bar.value() + 1)
 
     def update_file_error(self, index, error_message):
+        """Tablodaki bir dosyanın hata durumunu günceller."""
         self.set_status_badge(index, "Hata", "#e74c3c")
         self.table.setItem(index, 2, QTableWidgetItem("Hata oluştu"))
-        
         self.progress_bar.setValue(self.progress_bar.value() + 1)
 
     def analysis_finished(self):
+        """Analiz tamamlandığında çağrılır."""
+        self.set_ui_enabled(True)
         self.progress_bar.setFormat("Analiz tamamlandı!")
         self.update_summary_panel()
         self.right_stack.setCurrentWidget(self.results_summary_widget)
 
     def update_summary_panel(self):
+        """Sağdaki özet panelini günceller."""
         while self.results_layout.count():
             item = self.results_layout.takeAt(0)
             widget = item.widget()
-            if widget:
-                widget.deleteLater()
-        
+            if widget: widget.deleteLater()
+            
         total_files = self.table.rowCount()
         statuses = [self.table.item(row, 1).text() for row in range(total_files)]
         predictions = [self.table.item(row, 2).text() for row in range(total_files) if self.table.item(row, 1).text() == "Tamamlandı"]
-
         status_counts = Counter(statuses)
         prediction_counts = Counter(predictions)
         
@@ -259,10 +336,10 @@ class MultiAnalysisPage(QWidget):
         else:
             for pred, count in prediction_counts.items():
                 self.results_layout.addWidget(self.create_summary_label(f"{pred}:", f"{count} dosya"))
-        
         self.results_layout.addStretch()
-
+        
     def create_summary_label(self, key_text, value_text, value_color=None):
+        """Özet panel için biçimli bir etiket oluşturan yardımcı fonksiyon."""
         widget = QWidget()
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -271,16 +348,15 @@ class MultiAnalysisPage(QWidget):
         key_label.setStyleSheet("font-weight: bold;")
         
         value_label = QLabel(value_text)
-        if value_color:
-            value_label.setStyleSheet(f"font-weight: bold; color: {value_color};")
+        if value_color: value_label.setStyleSheet(f"font-weight: bold; color: {value_color};")
         
         layout.addWidget(key_label)
         layout.addWidget(value_label)
         layout.addStretch()
-        
         return widget
-
+        
     def clear_files(self):
+        """Dosya listesini ve tabloyu temizler."""
         self.file_paths.clear()
         self.table.clearContents()
         self.table.setRowCount(0)
