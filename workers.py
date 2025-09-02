@@ -98,7 +98,7 @@ class AnalysisWorker(QThread):
                     pixels = (pixels_normalized * 255).astype(np.uint8)
                 pil_image = Image.fromarray(pixels).convert("L")
             else:
-                pil_image = Image.open(file_path).convert("L")
+                image_array = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE).astype(np.float32)
             
             if self.modality == 'MR':
                 # --- Testt.py'deki BİREYSEL DİLİM işleme mantığı ---
@@ -140,6 +140,7 @@ class AnalysisWorker(QThread):
             raise Exception(f"Görüntü işleme hatası: {str(e)}")
 
 
+
 class MultiAnalysisWorker(QThread):
     file_progress = pyqtSignal(int, str, list)
     file_error = pyqtSignal(int, str)
@@ -161,7 +162,6 @@ class MultiAnalysisWorker(QThread):
                 if image_tensor is None:
                     raise Exception("Görüntü işlenemedi.")
                 image_tensor_gpu = image_tensor.to(self.device)
-                
                 if self.modality == 'MR':
                     predictions = []
                     with torch.no_grad():
