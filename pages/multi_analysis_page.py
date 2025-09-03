@@ -1,6 +1,7 @@
 # pages/multi_analysis_page.py
 
 import os
+import json # JSON işlemleri için import et
 from collections import Counter
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame, 
                              QScrollArea, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem, 
@@ -50,6 +51,8 @@ class MultiAnalysisPage(QWidget):
         self.label_names = label_names
         self.file_paths = []
         self.scanner_worker = None
+        # --- YENİ: Tahmin sonuçlarını saklamak için liste ---
+        self.prediction_results = []
         self.setAcceptDrops(True)
         self.setup_ui()
     
@@ -92,26 +95,40 @@ class MultiAnalysisPage(QWidget):
         upload_area_label.setAlignment(Qt.AlignCenter)
         upload_area_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #34495e; margin-bottom: 10px;")
         left_layout.addWidget(upload_area_label)
-        button_layout = QHBoxLayout()
+        
+        top_button_layout = QHBoxLayout()
         upload_icon = self.style().standardIcon(QStyle.SP_DialogOpenButton)
         self.upload_file_btn = QPushButton(upload_icon, " Dosya Seç...")
         self.upload_file_btn.setFixedHeight(40)
         self.upload_file_btn.setStyleSheet("QPushButton { font-size: 14px; background-color: #3498db; color: white; border-radius: 8px; padding: 5px; } QPushButton:hover { background-color: #5dade2; }")
         self.upload_file_btn.clicked.connect(self.upload_files_from_dialog)
-        button_layout.addWidget(self.upload_file_btn)
+        top_button_layout.addWidget(self.upload_file_btn)
+        
         upload_folder_icon = self.style().standardIcon(QStyle.SP_DirOpenIcon)
         self.upload_folder_btn = QPushButton(upload_folder_icon, " Klasör Seç...")
         self.upload_folder_btn.setFixedHeight(40)
         self.upload_folder_btn.setStyleSheet("QPushButton { font-size: 14px; background-color: #1abc9c; color: white; border-radius: 8px; padding: 5px; } QPushButton:hover { background-color: #2fe2bf; }")
         self.upload_folder_btn.clicked.connect(self.upload_folder_from_dialog)
-        button_layout.addWidget(self.upload_folder_btn)
+        top_button_layout.addWidget(self.upload_folder_btn)
+        left_layout.addLayout(top_button_layout)
+
+        bottom_button_layout = QHBoxLayout()
         clear_icon = self.style().standardIcon(QStyle.SP_TrashIcon)
         self.clear_btn = QPushButton(clear_icon, " Listeyi Temizle")
         self.clear_btn.setFixedHeight(40)
         self.clear_btn.setStyleSheet("QPushButton { font-size: 14px; background-color: #e74c3c; color: white; border-radius: 8px; padding: 5px; } QPushButton:hover { background-color: #ec7063; }")
         self.clear_btn.clicked.connect(self.clear_files)
-        button_layout.addWidget(self.clear_btn)
-        left_layout.addLayout(button_layout)
+        bottom_button_layout.addWidget(self.clear_btn)
+
+        # --- YENİ KAYDET BUTONU ---
+        self.save_btn = QPushButton(self.style().standardIcon(QStyle.SP_DialogSaveButton), " Sonuçları Kaydet")
+        self.save_btn.setFixedHeight(40)
+        self.save_btn.setStyleSheet("QPushButton { font-size: 14px; background-color: #27ae60; color: white; border-radius: 8px; padding: 5px; } QPushButton:hover { background-color: #2ecc71; }")
+        self.save_btn.clicked.connect(self.save_results_to_json)
+        self.save_btn.setEnabled(False) # Başlangıçta pasif
+        bottom_button_layout.addWidget(self.save_btn)
+        left_layout.addLayout(bottom_button_layout)
+        
         self.table = QTableWidget()
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(['Dosya Adı', 'Durum', 'Tahmin'])
@@ -218,6 +235,8 @@ class MultiAnalysisPage(QWidget):
     def start_analysis(self):
         if not self.file_paths: return
         self.set_ui_enabled(False)
+        self.save_btn.setEnabled(False) # Analiz başlarken kaydet butonu pasif
+        self.prediction_results = [] # Yeni analizden önce eski sonuçları temizle
         self.progress_bar.setVisible(True)
         self.progress_bar.setMaximum(len(self.file_paths))
         self.progress_bar.setValue(0)
@@ -236,6 +255,12 @@ class MultiAnalysisPage(QWidget):
         pred_item.setForeground(QColor("#c0392b"))
         pred_item.setFont(QFont("Arial", -1, QFont.Bold))
         self.progress_bar.setValue(self.progress_bar.value() + 1)
+        
+        # --- YENİ: Her sonucu listeye ekle ---
+        self.prediction_results.append({
+            "file_path": self.file_paths[index],
+            "prediction": prediction
+        })
 
     def update_file_error(self, index, error_message):
         self.set_status_badge(index, "Hata", "#e74c3c")
@@ -244,9 +269,47 @@ class MultiAnalysisPage(QWidget):
 
     def analysis_finished(self):
         self.set_ui_enabled(True)
+        if self.prediction_results: # Sadece başarılı tahmin varsa butonu aktif et
+            self.save_btn.setEnabled(True)
         self.progress_bar.setFormat("Analiz tamamlandı!")
         self.update_summary_panel()
         self.right_stack.setCurrentWidget(self.results_summary_widget)
+
+    # --- YENİ KAYDETME FONKSİYONU ---
+    def save_results_to_json(self):
+        if not self.prediction_results:
+            QMessageBox.warning(self, "Kayıt Hatası", "Kaydedilecek hiçbir analiz sonucu bulunmuyor.")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(self, "Sonuçları Kaydet", "", "JSON Dosyaları (*.json)")
+        
+        if file_path:
+            output_data = []
+            for result in self.prediction_results:
+                try:
+                    basename = os.path.basename(result["file_path"])
+                    image_id = basename
+                    # PatientId'yi bulmak için basit bir varsayım:
+                    # Dosya yolu .../PatientId/Modality/... şeklinde ise
+                    parts = result["file_path"].replace(os.sep, '/').split('/')
+                    patient_id = parts[-3] if len(parts) >= 3 else "Bilinmiyor"
+                except Exception:
+                    image_id = os.path.basename(result["file_path"])
+                    patient_id = "Bilinmiyor"
+                
+                output_data.append({
+                    "PatientId": patient_id,
+                    "ImageId": image_id,
+                    "Modality": self.modality,
+                    "LessionName": result["prediction"]
+                })
+
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(output_data, f, ensure_ascii=False, indent=4)
+                QMessageBox.information(self, "Başarılı", f"Sonuçlar başarıyla '{os.path.basename(file_path)}' dosyasına kaydedildi.")
+            except Exception as e:
+                QMessageBox.critical(self, "Kayıt Hatası", f"Dosya kaydedilirken bir hata oluştu:\n{str(e)}")
 
     def update_summary_panel(self):
         while self.results_layout.count():
@@ -296,6 +359,8 @@ class MultiAnalysisPage(QWidget):
         
     def clear_files(self):
         self.file_paths.clear()
+        self.prediction_results.clear()
+        self.save_btn.setEnabled(False)
         self.table.clearContents()
         self.table.setRowCount(0)
         self.progress_bar.setVisible(False)
