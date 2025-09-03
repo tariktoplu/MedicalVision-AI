@@ -9,7 +9,7 @@ from PIL import Image
 import torchvision.transforms as transforms
 from PyQt5.QtCore import QThread, pyqtSignal
 
-# --- BT için Test.py'den alınan DICOM işleme yardımcı fonksiyonları (Değişiklik yok) ---
+# --- BT için DICOM işleme yardımcı fonksiyonları (Değişiklik yok) ---
 def _to_uint8(img: np.ndarray) -> np.ndarray:
     img = img.astype(np.float32)
     if np.isnan(img).any(): img = np.nan_to_num(img, nan=0.0)
@@ -89,33 +89,29 @@ class AnalysisWorker(QThread):
     def preprocess_image(self, file_path):
         try:
             file_extension = os.path.splitext(file_path)[1].lower()
-            
-            if self.modality == 'MR':
-                depth = 16
-                slices = []
+            depth = 16
+            slices = []
 
+            if self.modality == 'MR':
                 if file_extension == '.dcm':
                     series_dir = os.path.dirname(file_path)
                     dcm_files = sorted([f for f in os.listdir(series_dir) if f.lower().endswith('.dcm')])
-                    selected_files = dcm_files[:depth]
-                    
-                    for fname in selected_files:
+                    for fname in dcm_files[:depth]:
                         try:
                             dcm = pydicom.dcmread(os.path.join(series_dir, fname))
-                            img = dcm.pixel_array.astype(np.float32)
-                            img = (img - img.min()) / (img.max() - img.min() + 1e-6)
-                            img_resized = np.array(Image.fromarray((img * 255).astype(np.uint8)).resize((256, 256)))
+                            img_array = dcm.pixel_array.astype(np.float32)
+                            img_normalized = (img_array - img_array.min()) / (img_array.max() - img_array.min() + 1e-6)
+                            img_resized = np.array(Image.fromarray((img_normalized * 255).astype(np.uint8)).resize((256, 256)))
                             tensor = torch.from_numpy(img_resized).float() / 255.0
                             slices.append(tensor)
                         except Exception:
                             continue
                 elif file_extension in ['.png', '.jpg', '.jpeg']:
                     pil_image = Image.open(file_path).convert("L")
-                    transform = transforms.Compose([
-                        transforms.Resize((256, 256)),
-                        transforms.ToTensor(),
-                    ])
-                    tensor_slice = transform(pil_image).squeeze(0) # Kanal boyutunu kaldır (256,256) kalsın
+                    img_array = np.array(pil_image, dtype=np.float32)
+                    img_normalized = (img_array - img_array.min()) / (img_array.max() - img_array.min() + 1e-6)
+                    img_resized = np.array(Image.fromarray((img_normalized * 255).astype(np.uint8)).resize((256, 256)))
+                    tensor_slice = torch.from_numpy(img_resized).float() / 255.0
                     slices = [tensor_slice for _ in range(depth)]
                 else:
                     raise ValueError(f"Desteklenmeyen dosya formatı: {file_extension}")
@@ -123,12 +119,11 @@ class AnalysisWorker(QThread):
                 while len(slices) < depth:
                     slices.append(torch.zeros((256, 256), dtype=torch.float32))
 
-                # --- DOĞRU BOYUTLANDIRMA ---
-                volume = torch.stack(slices).unsqueeze(0) # Shape: (1, 16, 256, 256)
-                # Testt.py'deki gibi DataLoader olmadığı için batch boyutu ekle
-                return volume.unsqueeze(0) # Final Shape: (1, 1, 16, 256, 256)
+                volume = torch.stack(slices).unsqueeze(0)
+                return volume.unsqueeze(0)
             
             elif self.modality == 'BT':
+                # BT mantığı zaten format bağımsızdı ve doğru çalışıyordu
                 pil_image = None
                 if file_extension == '.dcm':
                     ds = pydicom.dcmread(file_path, force=True)
@@ -153,10 +148,11 @@ class AnalysisWorker(QThread):
 
 
 class MultiAnalysisWorker(QThread):
+    # Bu sınıf, AnalysisWorker'daki doğru mantığı kullandığı için
+    # hiçbir değişiklik gerektirmez.
     file_progress = pyqtSignal(int, str, list)
     file_error = pyqtSignal(int, str)
     all_finished = pyqtSignal()
-    
     def __init__(self, models, device, file_paths, label_names, modality):
         super().__init__()
         self.models = models
@@ -164,7 +160,6 @@ class MultiAnalysisWorker(QThread):
         self.file_paths = file_paths
         self.label_names = label_names
         self.modality = modality
-
     def run(self):
         for i, file_path in enumerate(self.file_paths):
             try:
@@ -172,7 +167,6 @@ class MultiAnalysisWorker(QThread):
                 if image_tensor is None:
                     raise Exception("Görüntü işlenemedi.")
                 image_tensor_gpu = image_tensor.to(self.device)
-                
                 if self.modality == 'MR':
                     predictions = []
                     with torch.no_grad():
@@ -198,6 +192,5 @@ class MultiAnalysisWorker(QThread):
             except Exception as e:
                 self.file_error.emit(i, str(e))
         self.all_finished.emit()
-
     def preprocess_image(self, file_path):
         return AnalysisWorker.preprocess_image(self, file_path)

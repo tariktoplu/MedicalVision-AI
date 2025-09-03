@@ -40,6 +40,8 @@ class MedicalImageAnalyzer(QMainWindow):
         self.status_bar.showMessage(f"Hazır - {len(self.mr_models)} MR, {len(self.bt_models)} BT modeli yüklendi - Cihaz: {self.device}")
         
         self.setWindowIcon(self.style().standardIcon(QStyle.SP_ComputerIcon))
+        
+        self.page_history = []  # Sayfa geçmişi
     
     def _load_models_from_path(self, model_path, model_class, label):
         """Belirtilen yoldaki tüm .pt ve .pth dosyalarını yükler."""
@@ -68,6 +70,14 @@ class MedicalImageAnalyzer(QMainWindow):
         
         return models
 
+    def show_mode_page(self, modality):
+        mode_page = AnalysisModePage(modality)
+        mode_page.mode_selected.connect(self.show_analysis_page)
+        mode_page.back_clicked.connect(self.go_back)
+        self.stack.addWidget(mode_page)
+        self.page_history.append(self.stack.currentWidget())
+        self.stack.setCurrentWidget(mode_page)
+    
     def show_analysis_page(self, modality, mode):
         """Doğru model ve etiket seti ile analiz sayfasını gösterir."""
         if modality == "MR":
@@ -86,22 +96,24 @@ class MedicalImageAnalyzer(QMainWindow):
         else:
             analysis_page = MultiAnalysisPage(modality, models_to_use, self.device, labels_to_use)
         
-        analysis_page.back_clicked.connect(self.show_start_page)
+        analysis_page.back_clicked.connect(self.go_back)
         self.stack.addWidget(analysis_page)
+        self.page_history.append(self.stack.currentWidget())
         self.stack.setCurrentWidget(analysis_page)
     
-    def show_mode_page(self, modality):
-        mode_page = AnalysisModePage(modality)
-        mode_page.mode_selected.connect(self.show_analysis_page)
-        mode_page.back_clicked.connect(self.show_start_page)
-        self.stack.addWidget(mode_page)
-        self.stack.setCurrentWidget(mode_page)
-    
+    def go_back(self):
+        if self.page_history:
+            prev_widget = self.page_history.pop()
+            self.stack.setCurrentWidget(prev_widget)
+        else:
+            self.show_start_page()
+
     def show_start_page(self):
         while self.stack.count() > 1:
             widget = self.stack.widget(1)
             self.stack.removeWidget(widget)
             widget.deleteLater()
+        self.page_history.clear()
         self.stack.setCurrentWidget(self.start_page)
 
 def main():
