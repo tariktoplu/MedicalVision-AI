@@ -9,14 +9,12 @@ from PIL import Image
 import torchvision.transforms as transforms
 from PyQt5.QtCore import QThread, pyqtSignal
 
-# --- BT için Test.py'den alınan DICOM işleme yardımcı fonksiyonları ---
+# --- BT için Test.py'den alınan DICOM işleme yardımcı fonksiyonları (Değişiklik yok) ---
 def _to_uint8(img: np.ndarray) -> np.ndarray:
     img = img.astype(np.float32)
-    if np.isnan(img).any():
-        img = np.nan_to_num(img, nan=0.0)
+    if np.isnan(img).any(): img = np.nan_to_num(img, nan=0.0)
     vmin, vmax = np.percentile(img, [0.5, 99.5]) if np.ptp(img) > 0 else (img.min(), img.max())
-    if vmax == vmin:
-        return np.zeros_like(img, dtype=np.uint8)
+    if vmax == vmin: return np.zeros_like(img, dtype=np.uint8)
     img = np.clip((img - vmin) / (vmax - vmin), 0, 1)
     return (img * 255.0).round().astype(np.uint8)
 
@@ -28,8 +26,7 @@ def _window_image(ds: pydicom.dataset.FileDataset, default_center: float = 40.0,
     try:
         data = apply_voi_lut(data, ds)
         return _to_uint8(data)
-    except Exception:
-        pass
+    except Exception: pass
     center = float(ds.get('WindowCenter', default_center))
     width = float(ds.get('WindowWidth', default_width))
     if isinstance(center, pydicom.multival.MultiValue): center = float(center[0])
@@ -38,6 +35,7 @@ def _window_image(ds: pydicom.dataset.FileDataset, default_center: float = 40.0,
     high = center + width / 2.0
     data = np.clip(data, low, high)
     return _to_uint8(data)
+
 
 class AnalysisWorker(QThread):
     progress = pyqtSignal(str)
@@ -58,7 +56,6 @@ class AnalysisWorker(QThread):
             image_tensor = self.preprocess_image(self.file_path)
             if image_tensor is None:
                 raise Exception("Görüntü işlenemedi veya desteklenmiyor.")
-                
             image_tensor_gpu = image_tensor.to(self.device)
             self.progress.emit("Model analizi yapılıyor...")
             
@@ -72,14 +69,12 @@ class AnalysisWorker(QThread):
                 avg_prediction = np.mean(predictions, axis=0)
                 predicted_class_idx = np.argmax(avg_prediction)
                 all_probabilities = (avg_prediction * 100).tolist()
-            
             elif self.modality == 'BT':
                 outputs = []
                 with torch.no_grad():
                     for model in self.models:
                         output = model(image_tensor_gpu)
                         outputs.append(output.cpu().numpy()[0][0])
-                
                 avg_prob_stroke = np.mean(outputs)
                 all_probabilities_raw = [1 - avg_prob_stroke, avg_prob_stroke]
                 predicted_class_idx = np.argmax(all_probabilities_raw)
@@ -93,39 +88,56 @@ class AnalysisWorker(QThread):
     
     def preprocess_image(self, file_path):
         try:
+            file_extension = os.path.splitext(file_path)[1].lower()
+            
             if self.modality == 'MR':
-                # --- Testt.py'deki MANTIĞIN BİREBİR UYGULANMASI ---
                 depth = 16
                 slices = []
-                series_dir = os.path.dirname(file_path)
-                dcm_files = sorted([f for f in os.listdir(series_dir) if f.lower().endswith('.dcm')])
-                
-                selected_files = dcm_files[:depth]
-                
-                for fname in selected_files:
-                    try:
-                        dcm = pydicom.dcmread(os.path.join(series_dir, fname))
-                        img = dcm.pixel_array.astype(np.float32)
-                        
-                        img = (img - img.min()) / (img.max() - img.min() + 1e-6)
-                        
-                        img_resized = np.array(Image.fromarray((img * 255).astype(np.uint8)).resize((256, 256)))
-                        tensor = torch.from_numpy(img_resized).float() / 255.0
-                        slices.append(tensor)
-                    except Exception:
-                        continue
+
+                if file_extension == '.dcm':
+                    series_dir = os.path.dirname(file_path)
+                    dcm_files = sorted([f for f in os.listdir(series_dir) if f.lower().endswith('.dcm')])
+                    selected_files = dcm_files[:depth]
+                    
+                    for fname in selected_files:
+                        try:
+                            dcm = pydicom.dcmread(os.path.join(series_dir, fname))
+                            img = dcm.pixel_array.astype(np.float32)
+                            img = (img - img.min()) / (img.max() - img.min() + 1e-6)
+                            img_resized = np.array(Image.fromarray((img * 255).astype(np.uint8)).resize((256, 256)))
+                            tensor = torch.from_numpy(img_resized).float() / 255.0
+                            slices.append(tensor)
+                        except Exception:
+                            continue
+                elif file_extension in ['.png', '.jpg', '.jpeg']:
+                    pil_image = Image.open(file_path).convert("L")
+                    transform = transforms.Compose([
+                        transforms.Resize((256, 256)),
+                        transforms.ToTensor(),
+                    ])
+                    tensor_slice = transform(pil_image).squeeze(0) # Kanal boyutunu kaldır (256,256) kalsın
+                    slices = [tensor_slice for _ in range(depth)]
+                else:
+                    raise ValueError(f"Desteklenmeyen dosya formatı: {file_extension}")
 
                 while len(slices) < depth:
                     slices.append(torch.zeros((256, 256), dtype=torch.float32))
 
+                # --- DOĞRU BOYUTLANDIRMA ---
                 volume = torch.stack(slices).unsqueeze(0) # Shape: (1, 16, 256, 256)
-                return volume.unsqueeze(0) # DataLoader olmadığı için batch boyutu ekle: (1, 1, 16, 256, 256)
+                # Testt.py'deki gibi DataLoader olmadığı için batch boyutu ekle
+                return volume.unsqueeze(0) # Final Shape: (1, 1, 16, 256, 256)
             
             elif self.modality == 'BT':
-                # Test.py'nin mantığı: DICOM windowing ve 3 kanala çevirme
-                ds = pydicom.dcmread(file_path, force=True)
-                arr = _window_image(ds)
-                pil_image = Image.fromarray(arr).convert('RGB')
+                pil_image = None
+                if file_extension == '.dcm':
+                    ds = pydicom.dcmread(file_path, force=True)
+                    arr = _window_image(ds)
+                    pil_image = Image.fromarray(arr).convert('RGB')
+                elif file_extension in ['.png', '.jpg', '.jpeg']:
+                    pil_image = Image.open(file_path).convert('RGB')
+                else:
+                    raise ValueError(f"Desteklenmeyen dosya formatı: {file_extension}")
                 
                 transform = transforms.Compose([
                     transforms.Resize((224, 224)),
@@ -188,5 +200,4 @@ class MultiAnalysisWorker(QThread):
         self.all_finished.emit()
 
     def preprocess_image(self, file_path):
-        # AnalysisWorker'daki ile %100 aynı metodu çağır
         return AnalysisWorker.preprocess_image(self, file_path)

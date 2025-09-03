@@ -50,11 +50,11 @@ class SingleAnalysisPage(QWidget):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
             file_path = event.mimeData().urls()[0].toLocalFile()
-            supported_formats = ('.dcm', '.png', '.jpg', '.jpeg', '.bmp')
+            supported_formats = ('.dcm', '.png', '.jpg', '.jpeg')
             if file_path.lower().endswith(supported_formats):
                 self.process_new_file(file_path)
             else:
-                QMessageBox.warning(self, "Desteklenmeyen Dosya", "Desteklenen bir görüntü formatı seçin.")
+                QMessageBox.warning(self, "Desteklenmeyen Dosya", "Lütfen desteklenen bir görüntü formatı seçin.")
                 self.dragLeaveEvent(None)
 
     def setup_ui(self):
@@ -131,7 +131,7 @@ class SingleAnalysisPage(QWidget):
         self.analyze_file(file_path)
 
     def upload_file(self):
-        file_types = "Tüm Desteklenen (*.dcm *.png *.jpg *.jpeg *.bmp);;DICOM (*.dcm);;Görüntü (*.png *.jpg *.jpeg *.bmp)"
+        file_types = "Tüm Desteklenen Görüntüler (*.dcm *.png *.jpg *.jpeg);;DICOM (*.dcm);;Standart Görüntüler (*.png *.jpg *.jpeg)"
         file_path, _ = QFileDialog.getOpenFileName(self, f"{self.modality} Dosyası Seç", "", file_types)
         if file_path:
             self.process_new_file(file_path)
@@ -150,20 +150,20 @@ class SingleAnalysisPage(QWidget):
             if file_path.lower().endswith('.dcm'):
                 dcm = pydicom.dcmread(file_path)
                 pixels = dcm.pixel_array.astype(float)
-                pixels = (pixels - np.min(pixels)) / (np.max(pixels) - np.min(pixels) + 1e-6)
+                if np.max(pixels) > 0:
+                    pixels = (pixels - np.min(pixels)) / (np.max(pixels) - np.min(pixels))
                 image_array_8bit = (pixels * 255).astype(np.uint8)
             else:
-                image_array_8bit = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
+                pil_image = Image.open(file_path).convert("L")
+                image_array_8bit = np.array(pil_image)
 
             if image_array_8bit is None:
                 raise ValueError("Görüntü verisi okunamadı.")
             
-            pil_image = Image.fromarray(image_array_8bit)
-            pil_image.thumbnail((280, 280), Image.Resampling.LANCZOS)
+            final_pil_image = Image.fromarray(image_array_8bit)
+            final_pil_image.thumbnail((280, 280), Image.Resampling.LANCZOS)
             
-            # --- DÜZELTME BURADA ---
-            # 'bytesPerLine' argümanı için n_frames yerine sadece genişliği kullan
-            qimage = QImage(pil_image.tobytes(), pil_image.width, pil_image.height, pil_image.width, QImage.Format_Grayscale8)
+            qimage = QImage(final_pil_image.tobytes(), final_pil_image.width, final_pil_image.height, final_pil_image.width, QImage.Format_Grayscale8)
             pixmap = QPixmap.fromImage(qimage)
             
             self.preview_label.setPixmap(pixmap)

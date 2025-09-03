@@ -12,13 +12,15 @@ from PyQt5.QtGui import (QColor, QFont, QDragEnterEvent, QDragLeaveEvent, QDropE
 
 from workers import MultiAnalysisWorker
 
-# === KLASÖR TARAMA İŞÇİSİ ===
 class FolderScannerWorker(QThread):
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
+
     def __init__(self, paths_to_scan):
         super().__init__()
         self.paths = paths_to_scan
+        self.supported_extensions = ('.dcm', '.png', '.jpg', '.jpeg')
+
     def run(self):
         try:
             all_files = []
@@ -26,10 +28,11 @@ class FolderScannerWorker(QThread):
                 if os.path.isdir(path):
                     for root, _, files in os.walk(path):
                         for file in files:
-                            if file.lower().endswith('.dcm'):
+                            if file.lower().endswith(self.supported_extensions):
                                 all_files.append(os.path.join(root, file))
-                elif os.path.isfile(path) and path.lower().endswith('.dcm'):
+                elif os.path.isfile(path) and path.lower().endswith(self.supported_extensions):
                     all_files.append(path)
+            
             unique_sorted_files = sorted(list(set(all_files)))
             self.finished.emit(unique_sorted_files)
         except Exception as e:
@@ -54,10 +57,8 @@ class MultiAnalysisPage(QWidget):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
             self.left_panel.setStyleSheet(self.style_sheet_drop_active)
-            
     def dragLeaveEvent(self, event: QDragLeaveEvent):
         self.left_panel.setStyleSheet(self.style_sheet_default)
-        
     def dropEvent(self, event: QDropEvent):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
@@ -167,7 +168,7 @@ class MultiAnalysisPage(QWidget):
         if found_files:
             self.process_new_files(found_files)
         else:
-            QMessageBox.warning(self, "Dosya Bulunamadı", "Seçilen konumlarda desteklenen formatta (.dcm) bir görüntü bulunamadı.")
+            QMessageBox.warning(self, "Dosya Bulunamadı", "Seçilen konumlarda desteklenen formatta (.dcm, .png, .jpg, .jpeg) bir görüntü bulunamadı.")
     
     def on_scanning_error(self, error_message):
         QApplication.restoreOverrideCursor()
@@ -185,7 +186,7 @@ class MultiAnalysisPage(QWidget):
         self.start_analysis()
 
     def upload_files_from_dialog(self):
-        file_types = "DICOM Dosyaları (*.dcm);;Tüm Dosyalar (*)"
+        file_types = "Tüm Desteklenen Görüntüler (*.dcm *.png *.jpg *.jpeg);;Tüm Dosyalar (*)"
         file_paths, _ = QFileDialog.getOpenFileNames(self, f"{self.modality} Dosyalarını Seç", "", file_types)
         if file_paths:
             self.handle_paths(file_paths)
