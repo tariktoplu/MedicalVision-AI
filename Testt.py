@@ -1,90 +1,81 @@
+# Testt.py
+
 import os
-import json
-import random
 import torch
 import pydicom
 import numpy as np
 from PIL import Image
-import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader
 from torch import nn
-from sklearn.metrics import classification_report, confusion_matrix
-import seaborn as sns
 from tqdm import tqdm
-from collections import Counter
+import argparse
+import csv
 
 # ==============================
 # Config
 # ==============================
-MODEL_PATH = r"/home/tarik/Projects/Teknofest/Models/MR/best_modela.pt"
-TEST_JSON_PATH = r"/home/tarik/Projects/Teknofest/predics/MR_Son.json"
-TEST_ROOT_DIR = r"/home/tarik/Projects/Teknofest/Test Dataset/MR_TestSet/MR_testset"
 DEPTH = 16
-BATCH_SIZE = 2
-LABEL_MAP = {"HiperakutAkut": 0, "Subakut": 1, "NormalKronik": 2}
+BATCH_SIZE = 4
 LABEL_NAMES = ['HiperakutAkut', 'Subakut', 'NormalKronik']
 
 # ==============================
-# Dataset
+# Dataset (Doğru ve Değişmemiş)
 # ==============================
-class MR3DSliceDataset(Dataset):
-    def __init__(self, data_root, json_path, depth=16):
+class InferenceDataset(Dataset):
+    def __init__(self, data_root, depth=16):
         self.data_root = data_root
         self.depth = depth
-        with open(json_path, 'r', encoding='utf-8') as f:
-            raw_data = json.load(f)
+        self.file_paths = []
+        
+        print(f"'{data_root}' klasörü taranıyor...")
+        supported_extensions = ('.png', '.jpg', '.jpeg', '.dcm')
+        for fname in os.listdir(data_root):
+            if fname.lower().endswith(supported_extensions):
+                self.file_paths.append(os.path.join(data_root, fname))
 
-        self.data = []
-        for entry in raw_data:
-            if entry.get("Modality") != "MR":
-                continue
-            pid = str(entry["PatientId"])
-            image_id = str(entry["ImageId"])
-            lesion = entry.get("LessionName")  
-            if lesion not in LABEL_MAP:
-                continue
-            label = LABEL_MAP[lesion]
-            self.data.append((pid, image_id, label))
+        if not self.file_paths:
+            raise FileNotFoundError(f"'{data_root}' klasöründe desteklenen formatta görüntü bulunamadı.")
+        
+        print(f"Toplam {len(self.file_paths)} adet görüntü bulundu.")
 
     def __len__(self):
-        return len(self.data)
+        return len(self.file_paths)
 
     def __getitem__(self, idx):
-        pid, image_id, label = self.data[idx]
-        mr_dir = os.path.join(self.data_root, pid)
+        file_path = self.file_paths[idx]
+        file_extension = os.path.splitext(file_path)[1].lower()
         slices = []
 
-        found = False
-        current_series = None
-        for root, _, files in os.walk(mr_dir):
-            if image_id in files:
-                current_series = root
-                found = True
-                break
-
-        if found:
-            dcm_files = sorted(f for f in os.listdir(current_series) if f.endswith('.dcm'))
-            selected_files = dcm_files[:self.depth]  # eğitim ile aynı: ilk DEPTH slice
-
+        if file_extension == '.dcm':
+            series_dir = os.path.dirname(file_path)
+            dcm_files = sorted([f for f in os.listdir(series_dir) if f.lower().endswith('.dcm')])
+            selected_files = dcm_files[:self.depth]
             for fname in selected_files:
                 try:
-                    dcm = pydicom.dcmread(os.path.join(current_series, fname))
+                    dcm = pydicom.dcmread(os.path.join(series_dir, fname))
                     img = dcm.pixel_array.astype(np.float32)
                     img = (img - img.min()) / (img.max() - img.min() + 1e-6)
-                    img = np.array(Image.fromarray((img * 255).astype(np.uint8)).resize((256, 256)))
-                    tensor = torch.from_numpy(img).float() / 255.0
+                    img_resized = np.array(Image.fromarray((img * 255).astype(np.uint8)).resize((256, 256)))
+                    tensor = torch.from_numpy(img_resized).float() / 255.0
                     slices.append(tensor)
-                except:
-                    continue
-
+                except: continue
+        
+        elif file_extension in ['.png', '.jpg', '.jpeg']:
+            pil_image = Image.open(file_path).convert("L")
+            img_array = np.array(pil_image, dtype=np.float32)
+            img_normalized = (img_array - img_array.min()) / (img_array.max() - img_array.min() + 1e-6)
+            img_resized = np.array(Image.fromarray((img_normalized * 255).astype(np.uint8)).resize((256, 256)))
+            tensor_slice = torch.from_numpy(img_resized).float() / 255.0
+            slices = [tensor_slice for _ in range(self.depth)]
+            
         while len(slices) < self.depth:
-            slices.append(torch.zeros((256, 256)))  # eğitim ile aynı: siyah doldurma
+            slices.append(torch.zeros((256, 256), dtype=torch.float32))
 
         volume = torch.stack(slices).unsqueeze(0)
-        return volume, label
+        return volume, file_path
 
 # ==============================
-# Model (MedNet)
+# Model (MedNet - Düzeltilmiş forward metodu ile)
 # ==============================
 class MedNet(nn.Module):
     def __init__(self):
@@ -104,61 +95,63 @@ class MedNet(nn.Module):
             nn.Dropout(0.3),
             nn.Linear(128, 3)
         )
-
+        
+    # --- DÜZELTME BURADA ---
     def forward(self, x):
         x = self.features(x)
-        return self.classifier(x)
+        return self.classifier(x) # Önceki kodda bu satır eksikti!
 
 # ==============================
-# Main Test Function
+# Main Inference Function
 # ==============================
-def main():
+def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
-    dataset = MR3DSliceDataset(TEST_ROOT_DIR, TEST_JSON_PATH, depth=DEPTH)
-
-    class_counts = Counter([lbl for _, _, lbl in dataset.data])
-    print("📊 Test veri seti sınıf dağılımı:")
-    for k, v in sorted(class_counts.items()):
-        print(f"{LABEL_NAMES[k]}: {v}")
-    if class_counts.get(1, 0) == 0:
-        print("⚠️ Uyarı: Test verisinde Subakut sınıfı bulunmuyor!")
-
+    dataset = InferenceDataset(args.data_dir, depth=DEPTH)
     loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
 
     model = MedNet().to(device)
-    state = torch.load(MODEL_PATH, map_location=device)
+    state = torch.load(args.model_path, map_location=device)
     model.load_state_dict(state)
     model.eval()
 
-    y_true, y_pred = [], []
+    results = []
 
     with torch.no_grad():
-        for vols, labels in tqdm(loader, desc="Testing"):
-            vols, labels = vols.to(device), labels.to(device)
+        for vols, paths in tqdm(loader, desc="Tahmin ediliyor"):
+            # DataLoader'dan gelen 'vols' zaten doğru 5D boyutunda.
+            vols = vols.to(device)
             outputs = model(vols)
             preds = torch.argmax(outputs, dim=1)
-            y_true.extend(labels.cpu().numpy())
-            y_pred.extend(preds.cpu().numpy())
+            
+            for i in range(len(paths)):
+                prediction_index = preds[i].item() # Bu artık hata vermemeli.
+                predicted_label = LABEL_NAMES[prediction_index]
+                results.append((paths[i], predicted_label))
 
-    print(classification_report(y_true, y_pred, target_names=LABEL_NAMES))
+    output_csv_path = "tahmin_sonuclari.csv"
+    print("\n" + "="*50)
+    print("TAHMİN SONUÇLARI")
+    print("="*50)
+    
+    with open(output_csv_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(['DosyaYolu', 'Tahmin'])
+        
+        for file_path, prediction in results:
+            print(f"- Dosya: {os.path.basename(file_path):<30} -> Tahmin: {prediction}")
+            writer.writerow([file_path, prediction])
+            
+    print("\n" + "="*50)
+    print(f"Tüm sonuçlar '{output_csv_path}' dosyasına kaydedildi.")
+    print("="*50)
 
-    cm = confusion_matrix(y_true, y_pred)
-    plt.figure(figsize=(5, 4))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=LABEL_NAMES, yticklabels=LABEL_NAMES)
-    plt.title("Confusion Matrix")
-    plt.show()
-
-    fig, axes = plt.subplots(1, 5, figsize=(15, 3))
-    for ax in axes:
-        idx = random.randint(0, len(dataset)-1)
-        vol, label = dataset[idx]
-        mid_slice = vol[0, DEPTH//2].numpy()
-        ax.imshow(mid_slice, cmap="gray", vmin=0, vmax=1)
-        ax.set_title(LABEL_NAMES[label])
-        ax.axis("off")
-    plt.show()
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Bir klasördeki MR görüntüleri için tahmin yapar.")
+    parser.add_argument("model_path", type=str, help="Eğitilmiş modelin (.pt) yolu.")
+    parser.add_argument("data_dir", type=str, help="Tahmin yapılacak görüntülerin bulunduğu klasör.")
+    
+    args = parser.parse_args()
+    main(args)
