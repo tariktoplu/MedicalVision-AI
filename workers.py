@@ -6,35 +6,58 @@ import pydicom
 from pydicom.pixel_data_handlers.util import apply_voi_lut
 import numpy as np
 from PIL import Image
-import torchvision.transforms as transforms
+import torchvision.transforms as T
 from PyQt5.QtCore import QThread, pyqtSignal
 
-# --- BT için DICOM işleme yardımcı fonksiyonları (Değişiklik yok) ---
-def _to_uint8(img: np.ndarray) -> np.ndarray:
-    img = img.astype(np.float32)
-    if np.isnan(img).any(): img = np.nan_to_num(img, nan=0.0)
-    vmin, vmax = np.percentile(img, [0.5, 99.5]) if np.ptp(img) > 0 else (img.min(), img.max())
-    if vmax == vmin: return np.zeros_like(img, dtype=np.uint8)
-    img = np.clip((img - vmin) / (vmax - vmin), 0, 1)
-    return (img * 255.0).round().astype(np.uint8)
+# ==============================================================================
+# --- LT.py (TEST KODU) İÇİNDEKİ FONKSİYONLARIN BİREBİR KOPYASI ---
+# ==============================================================================
 
-def _window_image(ds: pydicom.dataset.FileDataset, default_center: float = 40.0, default_width: float = 80.0) -> np.ndarray:
+IMAGENET_MEAN = [0.485, 0.456, 0.406]
+IMAGENET_STD  = [0.229, 0.224, 0.225]
+
+def robust_dicom_to_pil_rgb(path: str) -> Image.Image:
+    ds = pydicom.dcmread(path)
+    arr = ds.pixel_array.astype(np.float32)
+    slope = float(getattr(ds, "RescaleSlope", 1.0))
+    intercept = float(getattr(ds, "RescaleIntercept", 0.0))
+    arr = arr * slope + intercept
+    lo, hi = np.percentile(arr, (1, 99))
+    if hi <= lo: lo, hi = float(arr.min()), float(arr.max())
+    arr = np.clip(arr, lo, hi)
+    denom = (hi - lo) if (hi - lo) != 0 else 1.0
+    arr = (arr - lo) / denom
+    img = (arr * 255.0).astype(np.uint8)
+    return Image.fromarray(img, mode='L').convert('RGB')
+
+def make_mr_transform(img_size=224):
+    return T.Compose([
+        T.Resize(256),
+        T.CenterCrop(img_size),
+        T.ToTensor(),
+        T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+    ])
+
+# --- BT için olan fonksiyonlar da burada kalacak ---
+def _window_image(ds: pydicom.dataset.FileDataset) -> np.ndarray:
     data = ds.pixel_array.astype(np.float32)
     slope = float(getattr(ds, 'RescaleSlope', 1.0))
     intercept = float(getattr(ds, 'RescaleIntercept', 0.0))
     data = data * slope + intercept
     try:
         data = apply_voi_lut(data, ds)
-        return _to_uint8(data)
-    except Exception: pass
-    center = float(ds.get('WindowCenter', default_center))
-    width = float(ds.get('WindowWidth', default_width))
-    if isinstance(center, pydicom.multival.MultiValue): center = float(center[0])
-    if isinstance(width, pydicom.multival.MultiValue): width = float(width[0])
-    low = center - width / 2.0
-    high = center + width / 2.0
-    data = np.clip(data, low, high)
-    return _to_uint8(data)
+    except Exception:
+        center = float(ds.get('WindowCenter', 40.0))
+        width = float(ds.get('WindowWidth', 80.0))
+        if isinstance(center, pydicom.multival.MultiValue): center = float(center[0])
+        if isinstance(width, pydicom.multival.MultiValue): width = float(width[0])
+        low = center - width / 2.0
+        high = center + width / 2.0
+        data = np.clip(data, low, high)
+    if np.ptp(data) > 0:
+        data = (data - np.min(data)) / np.ptp(data)
+    return (data * 255.0).astype(np.uint8)
+# ==============================================================================
 
 
 class AnalysisWorker(QThread):
@@ -54,8 +77,6 @@ class AnalysisWorker(QThread):
         try:
             self.progress.emit("Görüntü işleniyor...")
             image_tensor = self.preprocess_image(self.file_path)
-            if image_tensor is None:
-                raise Exception("Görüntü işlenemedi veya desteklenmiyor.")
             image_tensor_gpu = image_tensor.to(self.device)
             self.progress.emit("Model analizi yapılıyor...")
             
@@ -69,6 +90,7 @@ class AnalysisWorker(QThread):
                 avg_prediction = np.mean(predictions, axis=0)
                 predicted_class_idx = np.argmax(avg_prediction)
                 all_probabilities = (avg_prediction * 100).tolist()
+            
             elif self.modality == 'BT':
                 outputs = []
                 with torch.no_grad():
@@ -89,57 +111,37 @@ class AnalysisWorker(QThread):
     def preprocess_image(self, file_path):
         try:
             file_extension = os.path.splitext(file_path)[1].lower()
-            depth = 16
-            slices = []
-
+            pil_image_rgb = None
+            
             if self.modality == 'MR':
+                # --- LT.py'nin MANTIĞI: Her dosya tipi için aynı yol ---
                 if file_extension == '.dcm':
-                    series_dir = os.path.dirname(file_path)
-                    dcm_files = sorted([f for f in os.listdir(series_dir) if f.lower().endswith('.dcm')])
-                    for fname in dcm_files[:depth]:
-                        try:
-                            dcm = pydicom.dcmread(os.path.join(series_dir, fname))
-                            img_array = dcm.pixel_array.astype(np.float32)
-                            img_normalized = (img_array - img_array.min()) / (img_array.max() - img_array.min() + 1e-6)
-                            img_resized = np.array(Image.fromarray((img_normalized * 255).astype(np.uint8)).resize((256, 256)))
-                            tensor = torch.from_numpy(img_resized).float() / 255.0
-                            slices.append(tensor)
-                        except Exception:
-                            continue
+                    pil_image_rgb = robust_dicom_to_pil_rgb(file_path)
                 elif file_extension in ['.png', '.jpg', '.jpeg']:
-                    pil_image = Image.open(file_path).convert("L")
-                    img_array = np.array(pil_image, dtype=np.float32)
-                    img_normalized = (img_array - img_array.min()) / (img_array.max() - img_array.min() + 1e-6)
-                    img_resized = np.array(Image.fromarray((img_normalized * 255).astype(np.uint8)).resize((256, 256)))
-                    tensor_slice = torch.from_numpy(img_resized).float() / 255.0
-                    slices = [tensor_slice for _ in range(depth)]
+                    pil_image_rgb = Image.open(file_path).convert('RGB')
                 else:
-                    raise ValueError(f"Desteklenmeyen dosya formatı: {file_extension}")
-
-                while len(slices) < depth:
-                    slices.append(torch.zeros((256, 256), dtype=torch.float32))
-
-                volume = torch.stack(slices).unsqueeze(0)
-                return volume.unsqueeze(0)
+                    raise ValueError(f"Desteklenmeyen format: {file_extension}")
+                
+                transform = make_mr_transform(224)
+                tensor = transform(pil_image_rgb)
+                return tensor.unsqueeze(0)
             
             elif self.modality == 'BT':
-                # BT mantığı zaten format bağımsızdı ve doğru çalışıyordu
-                pil_image = None
                 if file_extension == '.dcm':
                     ds = pydicom.dcmread(file_path, force=True)
                     arr = _window_image(ds)
-                    pil_image = Image.fromarray(arr).convert('RGB')
+                    pil_image_rgb = Image.fromarray(arr).convert('RGB')
                 elif file_extension in ['.png', '.jpg', '.jpeg']:
-                    pil_image = Image.open(file_path).convert('RGB')
+                    pil_image_rgb = Image.open(file_path).convert('RGB')
                 else:
-                    raise ValueError(f"Desteklenmeyen dosya formatı: {file_extension}")
+                    raise ValueError(f"Desteklenmeyen format: {file_extension}")
                 
-                transform = transforms.Compose([
-                    transforms.Resize((224, 224)),
-                    transforms.ToTensor(),
-                    transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+                transform = T.Compose([
+                    T.Resize((224, 224)),
+                    T.ToTensor(),
+                    T.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
                 ])
-                tensor = transform(pil_image)
+                tensor = transform(pil_image_rgb)
                 return tensor.unsqueeze(0)
             
             return None
@@ -148,11 +150,10 @@ class AnalysisWorker(QThread):
 
 
 class MultiAnalysisWorker(QThread):
-    # Bu sınıf, AnalysisWorker'daki doğru mantığı kullandığı için
-    # hiçbir değişiklik gerektirmez.
     file_progress = pyqtSignal(int, str, list)
     file_error = pyqtSignal(int, str)
     all_finished = pyqtSignal()
+    
     def __init__(self, models, device, file_paths, label_names, modality):
         super().__init__()
         self.models = models
@@ -160,13 +161,13 @@ class MultiAnalysisWorker(QThread):
         self.file_paths = file_paths
         self.label_names = label_names
         self.modality = modality
+
     def run(self):
         for i, file_path in enumerate(self.file_paths):
             try:
                 image_tensor = self.preprocess_image(file_path)
-                if image_tensor is None:
-                    raise Exception("Görüntü işlenemedi.")
                 image_tensor_gpu = image_tensor.to(self.device)
+                
                 if self.modality == 'MR':
                     predictions = []
                     with torch.no_grad():
@@ -192,5 +193,6 @@ class MultiAnalysisWorker(QThread):
             except Exception as e:
                 self.file_error.emit(i, str(e))
         self.all_finished.emit()
+
     def preprocess_image(self, file_path):
         return AnalysisWorker.preprocess_image(self, file_path)
