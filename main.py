@@ -42,18 +42,26 @@ class MedicalImageAnalyzer(QMainWindow):
             QMessageBox.critical(None, f"{label} Model Hatası", f"'{model_path}' klasörü bulunamadı!")
             return models
         try:
-            model_files = [f for f in os.listdir(model_path) if f.endswith(('.pt', '.pth'))]
-            if not model_files:
-                print(f"Uyarı: '{model_path}' klasöründe model dosyası bulunamadı.")
+            # --- DEĞİŞİKLİK BURADA: Artık tüm modelleri değil, spesifik olanı arıyoruz ---
+            model_files_to_check = []
+            if label == "MR":
+                # MR için sadece 'v2' içeren dosyaları ara
+                model_files_to_check = [f for f in os.listdir(model_path) if 'v2' in f and f.endswith(('.pt', '.pth'))]
+                if not model_files_to_check:
+                    print(f"Uyarı: '{model_path}' klasöründe 'v2' içeren bir model dosyası bulunamadı.")
+                    return models # v2 bulunamazsa boş liste döndür
+            else:
+                # Diğer modaliteler (BT) için klasördeki tüm modelleri yükle (eski mantık)
+                model_files_to_check = [f for f in os.listdir(model_path) if f.endswith(('.pt', '.pth'))]
+
+            if not model_files_to_check:
+                print(f"Uyarı: '{model_path}' klasöründe yüklenecek model dosyası bulunamadı.")
                 return models
 
-            for model_file in model_files:
+            for model_file in model_files_to_check:
                 path = os.path.join(model_path, model_file)
                 model = model_class_or_function()
                 
-                # --- ÇÖZÜM BURADA ---
-                # Yeni PyTorch versiyonlarının güvenlik kontrolünü geçmek için
-                # weights_only=False parametresini ekliyoruz.
                 ckpt = torch.load(path, map_location=self.device, weights_only=False)
                 
                 if isinstance(ckpt, dict) and "state_dict" in ckpt:
@@ -61,7 +69,6 @@ class MedicalImageAnalyzer(QMainWindow):
                 else:
                     state_dict_to_load = ckpt
                 
-                # strict=False, esneklik sağlar.
                 model.load_state_dict(state_dict_to_load, strict=False)
 
                 model.to(self.device)
