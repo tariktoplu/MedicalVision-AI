@@ -5,7 +5,7 @@ Dataset/
 Models/**/*.pt
 Models/**/*.pth
 Test Dataset/
-Testt
+Testt.py
 compare_results.py
 v1 predics/
 v1+v2/
