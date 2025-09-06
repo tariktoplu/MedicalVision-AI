@@ -7,7 +7,5 @@ Models/**/*.pth
 Test Dataset/
 Testt.py
 compare_results.py
-v1 predics/
-v1+v2/
-v2 Predics/
+Predics/
 
