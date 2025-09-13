@@ -3,5 +3,6 @@
 from .start_page import StartPage
 from .analysis_mode_page import AnalysisModePage
 from .single_analysis_page import SingleAnalysisPage
-from .multi_analysis_page_mr import MultiAnalysisPageMR # YENİ
-from .multi_analysis_page_bt import MultiAnalysisPageBT # YENİ
+from .base_page import BaseMultiAnalysisPage # YENİ
+from .multi_analysis_page_mr import MultiAnalysisPageMR
+from .multi_analysis_page_bt import MultiAnalysisPageBT
