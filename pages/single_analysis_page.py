@@ -144,24 +144,45 @@ class SingleAnalysisPage(QWidget):
         self.file_info.setText(info_text)
         self.file_info.setStyleSheet("margin: 10px; color: #2c3e50; font-weight: bold;")
 
+    # --- DEĞİŞTİ: BT DICOM'lar için özel pencereleme eklendi ---
     def show_preview(self, file_path):
         try:
             image_array_8bit = None
             if file_path.lower().endswith('.dcm'):
-                dcm = pydicom.dcmread(file_path)
-                pixels = dcm.pixel_array.astype(float)
-                if np.max(pixels) > 0:
-                    pixels = (pixels - np.min(pixels)) / (np.max(pixels) - np.min(pixels))
-                image_array_8bit = (pixels * 255).astype(np.uint8)
-            else:
-                pil_image = Image.open(file_path).convert("L")
-                image_array_8bit = np.array(pil_image)
+                ds = pydicom.dcmread(file_path)
+                image = ds.pixel_array.astype(np.int16)
+
+                if self.modality == 'BT':
+                    # --- YENİ: BT için radyolojik pencereleme ---
+                    intercept = getattr(ds, "RescaleIntercept", 0)
+                    slope = getattr(ds, "RescaleSlope", 1)
+                    image = image * slope + intercept
+                    
+                    # Beyin Penceresi: Window Center=40, Window Width=80
+                    window_center = 40
+                    window_width = 80
+                    img_min = window_center - window_width // 2
+                    img_max = window_center + window_width // 2
+                    image = np.clip(image, img_min, img_max)
+                    
+                    # Görüntüyü 0-255 arasına normalize et
+                    if np.max(image) != np.min(image):
+                        image = (image - np.min(image)) / (np.max(image) - np.min(image))
+                    image_array_8bit = (image * 255).astype(np.uint8)
+
+                else: # MR için basit min-max normalizasyon
+                    if np.max(image) != np.min(image):
+                        image = (image - np.min(image)) / (np.max(image) - np.min(image))
+                    image_array_8bit = (image * 255).astype(np.uint8)
+            
+            else: # PNG, JPG, vb. için
+                image_array_8bit = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
 
             if image_array_8bit is None:
                 raise ValueError("Görüntü verisi okunamadı.")
             
             final_pil_image = Image.fromarray(image_array_8bit)
-            final_pil_image.thumbnail((280, 280), Image.Resampling.LANCZOS)
+            final_pil_image.thumbnail((300, 300), Image.Resampling.LANCZOS)
             
             qimage = QImage(final_pil_image.tobytes(), final_pil_image.width, final_pil_image.height, final_pil_image.width, QImage.Format_Grayscale8)
             pixmap = QPixmap.fromImage(qimage)
@@ -175,6 +196,7 @@ class SingleAnalysisPage(QWidget):
             self.current_file = None
 
     def analyze_file(self, file_path):
+        # ... (Bu metot aynı, değişiklik yok)
         self.clear_layout(self.result_layout)
         self.progress_label = QLabel(" Analiz başlatılıyor...")
         self.progress_label.setAlignment(Qt.AlignCenter)
@@ -190,12 +212,12 @@ class SingleAnalysisPage(QWidget):
         self.progress_label.setText(f" {message}")
 
     def show_results(self, prediction, probabilities):
+        # ... (Bu metot aynı, değişiklik yok)
         self.clear_layout(self.result_layout)
         success_label = QLabel(" Analiz Tamamlandı!")
         success_label.setAlignment(Qt.AlignCenter)
         success_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #27ae60; margin: 10px;")
         self.result_layout.addWidget(success_label)
-        
         result_frame = QFrame()
         result_frame.setStyleSheet("QFrame { background: #e8f5e8; border-radius: 10px; padding: 15px; }")
         result_layout = QVBoxLayout(result_frame)
@@ -206,24 +228,22 @@ class SingleAnalysisPage(QWidget):
         pred_value.setStyleSheet("font-size: 20px; font-weight: bold; color: #c0392b; margin: 5px;")
         result_layout.addWidget(pred_value)
         self.result_layout.addWidget(result_frame)
-        
         prob_frame = QFrame()
         prob_frame.setStyleSheet("QFrame { background: #f8f9fa; border-radius: 10px; padding: 15px; }")
         prob_layout = QVBoxLayout(prob_frame)
         prob_title = QLabel("Tüm Sınıf Olasılıkları:")
         prob_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #2c3e50; margin-bottom: 10px;")
         prob_layout.addWidget(prob_title)
-        
         for i, (label, prob) in enumerate(zip(self.label_names, probabilities)):
+            color = "#c0392b" if label in prediction.split(', ') else "#7f8c8d"
             prob_item = QLabel(f"• {label}: %{prob:.1f}")
-            color = "#c0392b" if label == prediction else "#7f8c8d"
             prob_item.setStyleSheet(f"font-size: 12px; color: {color}; margin: 2px;")
             prob_layout.addWidget(prob_item)
-        
         self.result_layout.addWidget(prob_frame)
         self.result_layout.addStretch()
 
     def show_error(self, error_message):
+        # ... (Bu metot aynı, değişiklik yok)
         self.clear_layout(self.result_layout)
         error_label = QLabel(" Analiz Hatası")
         error_label.setAlignment(Qt.AlignCenter)
