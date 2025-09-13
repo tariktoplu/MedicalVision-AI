@@ -1,8 +1,8 @@
-# pages/multi_analysis_page.py
+# pages/multi_analysis_page_bt.py
 
 import os
 import json
-from collections import Counter, defaultdict
+from collections import Counter
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame, 
                              QScrollArea, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem, 
                              QHeaderView, QAbstractItemView, QProgressBar, QSplitter, QStyle, 
@@ -14,38 +14,30 @@ from PyQt5.QtGui import (QColor, QFont, QDragEnterEvent, QDragLeaveEvent, QDropE
 
 from workers import MultiAnalysisWorker
 
-# --- Künye Bilgilerini Almak İçin Diyalog Penceresi ---
+# Bu dosya içindeki yardımcı sınıflar
 class KunyeDialog(QDialog):
     def __init__(self, takim_adi, takim_id, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Künye Bilgilerini Girin")
-        
         self.takim_adi_input = QLineEdit(takim_adi)
         self.takim_id_input = QLineEdit(takim_id)
-        
         form_layout = QFormLayout(self)
         form_layout.addRow("Takım Adı:", self.takim_adi_input)
         form_layout.addRow("Takım ID:", self.takim_id_input)
-        
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
-        
         form_layout.addRow(button_box)
-
     def get_data(self):
         return self.takim_adi_input.text(), self.takim_id_input.text()
-
 
 class FolderScannerWorker(QThread):
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
-
     def __init__(self, paths_to_scan):
         super().__init__()
         self.paths = paths_to_scan
         self.supported_extensions = ('.dcm', '.png', '.jpg', '.jpeg')
-
     def run(self):
         try:
             all_files = []
@@ -57,14 +49,12 @@ class FolderScannerWorker(QThread):
                                 all_files.append(os.path.join(root, file))
                 elif os.path.isfile(path) and path.lower().endswith(self.supported_extensions):
                     all_files.append(path)
-            
-            unique_sorted_files = sorted(list(set(all_files)))
-            self.finished.emit(unique_sorted_files)
+            self.finished.emit(sorted(list(set(all_files))))
         except Exception as e:
-            self.error.emit(f"Klasör taranırken bir hata oluştu: {str(e)}")
+            self.error.emit(f"Klasör taranırken hata: {str(e)}")
 
 
-class MultiAnalysisPage(QWidget):
+class MultiAnalysisPageBT(QWidget):
     back_clicked = pyqtSignal()
     
     def __init__(self, modality, models, device, label_names):
@@ -75,10 +65,7 @@ class MultiAnalysisPage(QWidget):
         self.label_names = label_names
         self.file_paths = []
         self.scanner_worker = None
-        self.analysis_worker = None
         self.prediction_results = []
-        self.json_template = None
-        self.json_template_path = ""
         self.setAcceptDrops(True)
         self.setup_ui()
     
@@ -101,8 +88,7 @@ class MultiAnalysisPage(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
         top_bar = QHBoxLayout()
-        back_icon = self.style().standardIcon(QStyle.SP_ArrowLeft)
-        back_btn = QPushButton(back_icon, " Geri")
+        back_btn = QPushButton(self.style().standardIcon(QStyle.SP_ArrowLeft), " Geri")
         back_btn.setFixedSize(100, 40)
         back_btn.setStyleSheet("QPushButton { font-size: 14px; background-color: #7f8c8d; color: white; border: none; border-radius: 8px; } QPushButton:hover { background-color: #95a5a6; }")
         back_btn.clicked.connect(self.back_clicked.emit)
@@ -117,34 +103,28 @@ class MultiAnalysisPage(QWidget):
         self.left_panel.setStyleSheet(self.style_sheet_default)
         left_layout = QVBoxLayout(self.left_panel)
         left_layout.setContentsMargins(15, 15, 15, 15)
-        upload_area_label = QLabel("Dosyaları veya Klasörleri Buraya Sürükleyin\nveya Butonları Kullanın")
+        upload_area_label = QLabel("Dosyaları veya Klasörleri Buraya Sürükleyin")
         upload_area_label.setAlignment(Qt.AlignCenter)
         upload_area_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #34495e; margin-bottom: 10px;")
         left_layout.addWidget(upload_area_label)
-        
         top_button_layout = QHBoxLayout()
-        self.upload_template_btn = QPushButton(self.style().standardIcon(QStyle.SP_FileIcon), " JSON Şablonu Yükle...")
-        self.upload_template_btn.setFixedHeight(40)
-        self.upload_template_btn.setStyleSheet("QPushButton { font-size: 14px; background-color: #9b59b6; color: white; border-radius: 8px; padding: 5px; } QPushButton:hover { background-color: #af7ac5; }")
-        self.upload_template_btn.clicked.connect(self.load_json_template)
-        top_button_layout.addWidget(self.upload_template_btn)
-
-        upload_folder_icon = self.style().standardIcon(QStyle.SP_DirOpenIcon)
-        self.upload_folder_btn = QPushButton(upload_folder_icon, " Klasör Seç...")
+        self.upload_file_btn = QPushButton(self.style().standardIcon(QStyle.SP_DialogOpenButton), " Dosya Seç...")
+        self.upload_file_btn.setFixedHeight(40)
+        self.upload_file_btn.setStyleSheet("QPushButton { font-size: 14px; background-color: #3498db; color: white; border-radius: 8px; padding: 5px; } QPushButton:hover { background-color: #5dade2; }")
+        self.upload_file_btn.clicked.connect(self.upload_files_from_dialog)
+        top_button_layout.addWidget(self.upload_file_btn)
+        self.upload_folder_btn = QPushButton(self.style().standardIcon(QStyle.SP_DirOpenIcon), " Klasör Seç...")
         self.upload_folder_btn.setFixedHeight(40)
         self.upload_folder_btn.setStyleSheet("QPushButton { font-size: 14px; background-color: #1abc9c; color: white; border-radius: 8px; padding: 5px; } QPushButton:hover { background-color: #2fe2bf; }")
         self.upload_folder_btn.clicked.connect(self.upload_folder_from_dialog)
         top_button_layout.addWidget(self.upload_folder_btn)
         left_layout.addLayout(top_button_layout)
-        
         bottom_button_layout = QHBoxLayout()
-        clear_icon = self.style().standardIcon(QStyle.SP_TrashIcon)
-        self.clear_btn = QPushButton(clear_icon, " Listeyi Temizle")
+        self.clear_btn = QPushButton(self.style().standardIcon(QStyle.SP_TrashIcon), " Listeyi Temizle")
         self.clear_btn.setFixedHeight(40)
         self.clear_btn.setStyleSheet("QPushButton { font-size: 14px; background-color: #e74c3c; color: white; border-radius: 8px; padding: 5px; } QPushButton:hover { background-color: #ec7063; }")
         self.clear_btn.clicked.connect(self.clear_files)
         bottom_button_layout.addWidget(self.clear_btn)
-
         self.save_btn = QPushButton(self.style().standardIcon(QStyle.SP_DialogSaveButton), " Sonuçları Kaydet")
         self.save_btn.setFixedHeight(40)
         self.save_btn.setStyleSheet("QPushButton { font-size: 14px; background-color: #27ae60; color: white; border-radius: 8px; padding: 5px; } QPushButton:hover { background-color: #2ecc71; }")
@@ -152,10 +132,9 @@ class MultiAnalysisPage(QWidget):
         self.save_btn.setEnabled(False)
         bottom_button_layout.addWidget(self.save_btn)
         left_layout.addLayout(bottom_button_layout)
-        
         self.table = QTableWidget()
         self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(['Dosya/Vaka Adı', 'Durum', 'Tahmin'])
+        self.table.setHorizontalHeaderLabels(['Dosya Adı', 'Durum', 'Tahmin'])
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.Stretch)
         for i in range(1, 3): header.setSectionResizeMode(i, QHeaderView.ResizeToContents)
@@ -165,7 +144,6 @@ class MultiAnalysisPage(QWidget):
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         left_layout.addWidget(self.progress_bar)
-        
         right_panel = QFrame()
         right_panel.setStyleSheet(self.style_sheet_default)
         right_layout = QVBoxLayout(right_panel)
@@ -174,9 +152,7 @@ class MultiAnalysisPage(QWidget):
         initial_layout = QVBoxLayout(self.initial_summary_widget)
         initial_layout.setAlignment(Qt.AlignCenter)
         summary_icon = QLabel()
-        icon = self.style().standardIcon(QStyle.SP_FileDialogDetailedView)
-        summary_icon.setPixmap(icon.pixmap(QSize(80, 80)))
-        summary_icon.setAlignment(Qt.AlignCenter)
+        summary_icon.setPixmap(self.style().standardIcon(QStyle.SP_FileDialogDetailedView).pixmap(QSize(80, 80)))
         initial_layout.addWidget(summary_icon)
         initial_msg = QLabel("Analiz Sonuçları Özeti Burada Görüntülenecek")
         initial_msg.setAlignment(Qt.AlignCenter)
@@ -208,10 +184,9 @@ class MultiAnalysisPage(QWidget):
         QApplication.restoreOverrideCursor()
         self.set_ui_enabled(True)
         if found_files:
-            self.json_template = None
             self.process_new_files(found_files)
         else:
-            QMessageBox.warning(self, "Dosya Bulunamadı", "Seçilen konumlarda desteklenen formatta (.dcm, .png, .jpg, .jpeg) bir görüntü bulunamadı.")
+            QMessageBox.warning(self, "Dosya Bulunamadı", "Desteklenen formatta dosya bulunamadı.")
     
     def on_scanning_error(self, error_message):
         QApplication.restoreOverrideCursor()
@@ -219,7 +194,7 @@ class MultiAnalysisPage(QWidget):
         QMessageBox.critical(self, "Tarama Hatası", error_message)
 
     def set_ui_enabled(self, enabled):
-        self.upload_template_btn.setEnabled(enabled)
+        self.upload_file_btn.setEnabled(enabled)
         self.upload_folder_btn.setEnabled(enabled)
         self.clear_btn.setEnabled(enabled)
 
@@ -239,60 +214,11 @@ class MultiAnalysisPage(QWidget):
         if folder_path:
             self.handle_paths([folder_path])
 
-    def load_json_template(self):
-        json_path, _ = QFileDialog.getOpenFileName(self, "Yarışma JSON Şablonunu Seç", "", "JSON Dosyaları (*.json)")
-        if not json_path: return
-        try:
-            with open(json_path, 'r', encoding='utf-8') as f:
-                self.json_template = json.load(f)
-            self.json_template_path = json_path
-        except Exception as e:
-            QMessageBox.critical(self, "JSON Okuma Hatası", f"JSON şablonu okunurken bir hata oluştu:\n{str(e)}")
-            return
-        data_folder = QFileDialog.getExistingDirectory(self, f"Yarışma Veri Seti Klasörünü Seç ({self.modality})")
-        if not data_folder:
-            self.json_template = None
-            return
-        self.populate_from_template(data_folder)
-
-    def populate_from_template(self, data_folder):
-        if not self.json_template: return
-        template_filenames = {item['filename'] for item in self.json_template.get('tahminler', [])}
-        found_files_map = {os.path.basename(f): f for f in self.find_all_files(data_folder)}
-        found_filenames = set(found_files_map.keys())
-        missing_in_json = found_filenames - template_filenames
-        if missing_in_json:
-            reply = QMessageBox.question(self, "Eksik Dosyalar Bulundu",
-                                       f"{len(missing_in_json)} dosya klasörde bulundu ancak JSON şablonunda eksik.\nBu dosyalar listeye eklenip analiz edilsin mi?",
-                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
-            if reply == QMessageBox.Yes:
-                for fname in sorted(list(missing_in_json)):
-                    new_entry = self.create_zero_prediction(fname)
-                    self.json_template['tahminler'].append(new_entry)
-        final_file_paths = [path for fname, path in found_files_map.items() if fname in {item['filename'] for item in self.json_template.get('tahminler', [])}]
-        self.process_new_files(final_file_paths)
-
-    def find_all_files(self, data_folder):
-        all_files = []
-        supported_extensions = ('.dcm', '.png', '.jpg', '.jpeg')
-        for root, _, files in os.walk(data_folder):
-            for file in files:
-                if file.lower().endswith(supported_extensions):
-                    all_files.append(os.path.join(root, file))
-        return all_files
-
-    def create_zero_prediction(self, filename):
-        if self.modality == 'MR':
-            return {"filename": filename, "hyperacute_acute": 0, "subacute": 0, "normal_chronic": 0}
-        else:
-            return {"filename": filename, "stroke": 0, "stroke_type": 3}
-            
     def populate_table(self):
         self.table.clearContents()
         self.table.setRowCount(len(self.file_paths))
         for i, file_path in enumerate(self.file_paths):
-            file_name = os.path.basename(file_path)
-            self.table.setItem(i, 0, QTableWidgetItem(file_name))
+            self.table.setItem(i, 0, QTableWidgetItem(os.path.basename(file_path)))
             self.set_status_badge(i, "Bekliyor", "#f39c12")
             self.table.setItem(i, 2, QTableWidgetItem("-"))
 
@@ -301,9 +227,7 @@ class MultiAnalysisPage(QWidget):
         item.setTextAlignment(Qt.AlignCenter)
         item.setBackground(QColor(color))
         item.setForeground(QColor("white"))
-        font = QFont()
-        font.setBold(True)
-        item.setFont(font)
+        font = QFont(); font.setBold(True); item.setFont(font)
         self.table.setItem(row, 1, item)
     
     def start_analysis(self):
@@ -314,181 +238,112 @@ class MultiAnalysisPage(QWidget):
         self.progress_bar.setVisible(True)
         self.progress_bar.setMaximum(len(self.file_paths))
         self.progress_bar.setValue(0)
-        self.progress_bar.setFormat("Dosyalar taranıyor ve tahmin ediliyor...")
+        self.progress_bar.setFormat("%p%")
         self.right_stack.setCurrentWidget(self.initial_summary_widget)
-        self.analysis_worker = MultiAnalysisWorker(self.models, self.device, self.file_paths, self.label_names, self.modality)
-        self.analysis_worker.progress.connect(self.update_progress_bar)
-        self.analysis_worker.finished.connect(self.on_analysis_finished)
-        self.analysis_worker.error.connect(self.on_analysis_error)
-        self.analysis_worker.start()
+        self.worker = MultiAnalysisWorker(self.models, self.device, self.file_paths, self.label_names, self.modality)
+        self.worker.file_progress.connect(self.update_file_result)
+        self.worker.file_error.connect(self.update_file_error)
+        self.worker.all_finished.connect(self.analysis_finished)
+        self.worker.start()
 
-    def update_progress_bar(self, current, total):
-        self.progress_bar.setMaximum(total)
-        self.progress_bar.setValue(current)
-        self.progress_bar.setFormat(f"%p% ({current}/{total})")
+    def update_file_result(self, index, prediction, probabilities):
+        self.set_status_badge(index, "Tamamlandı", "#27ae60")
+        self.table.setItem(index, 2, QTableWidgetItem(prediction))
+        pred_item = self.table.item(index, 2)
+        pred_item.setForeground(QColor("#c0392b"))
+        pred_item.setFont(QFont("Arial", -1, QFont.Bold))
+        self.progress_bar.setValue(self.progress_bar.value() + 1)
+        self.prediction_results.append({"file_path": self.file_paths[index], "prediction": prediction})
 
-    def on_analysis_finished(self, results):
+    def update_file_error(self, index, error_message):
+        self.set_status_badge(index, "Hata", "#e74c3c")
+        self.table.setItem(index, 2, QTableWidgetItem("Hata oluştu"))
+        self.progress_bar.setValue(self.progress_bar.value() + 1)
+
+    def analysis_finished(self):
         self.set_ui_enabled(True)
-        self.prediction_results = results
-        self.table.clearContents()
-        self.table.setRowCount(len(results))
-        for i, result in enumerate(results):
-            display_name = f"VAKA: {result.get('patient_id', os.path.basename(result['file_path']))}"
-            prediction = result["prediction"]
-            self.table.setItem(i, 0, QTableWidgetItem(display_name))
-            self.set_status_badge(i, "Tamamlandı", "#27ae60")
-            self.table.setItem(i, 2, QTableWidgetItem(prediction))
-            pred_item = self.table.item(i, 2)
-            pred_item.setForeground(QColor("#c0392b"))
-            pred_item.setFont(QFont("Arial", -1, QFont.Bold))
         if self.prediction_results:
             self.save_btn.setEnabled(True)
         self.progress_bar.setFormat("Analiz tamamlandı!")
         self.update_summary_panel()
         self.right_stack.setCurrentWidget(self.results_summary_widget)
 
-    def on_analysis_error(self, error_message):
-        self.set_ui_enabled(True)
-        QApplication.restoreOverrideCursor()
-        QMessageBox.critical(self, "Analiz Hatası", error_message)
-
     def open_kunye_dialog_and_save(self):
-        takim_adi, takim_id = "TUSEB_SYZ_" + self.modality, "000000"
-        if self.json_template and 'kunye' in self.json_template:
-            takim_adi = self.json_template['kunye'].get('takim_adi', takim_adi)
-            takim_id = self.json_template['kunye'].get('takim_id', takim_id)
-        
-        dialog = KunyeDialog(takim_adi, takim_id, self)
+        dialog = KunyeDialog("TUSEB_SYZ_" + self.modality, "987654", self)
         if dialog.exec_() == QDialog.Accepted:
-            final_takim_adi, final_takim_id = dialog.get_data()
-            if not final_takim_adi or not final_takim_id:
+            takim_adi, takim_id = dialog.get_data()
+            if not takim_adi or not takim_id:
                  QMessageBox.warning(self, "Eksik Bilgi", "Takım Adı ve ID boş bırakılamaz.")
                  return
-            self.save_results_to_json(final_takim_adi, final_takim_id)
+            self.save_results_to_json(takim_adi, takim_id)
 
     def save_results_to_json(self, takim_adi, takim_id):
-        if not self.prediction_results and not self.json_template:
+        if not self.prediction_results:
             QMessageBox.warning(self, "Kayıt Hatası", "Kaydedilecek sonuç bulunmuyor.")
             return
-            
-        final_json = {}
-        if self.json_template:
-            final_json = self.json_template.copy()
-            if self.modality == "MR":
-                results_map = {res["patient_id"]: res["patient_level_preds"] for res in self.prediction_results}
-                for item in final_json.get('tahminler', []):
-                    pid = item.get("PatientID")
-                    if pid in results_map:
-                        preds = results_map[pid]
-                        item["hyperacute_acute"] = preds.get("HiperakutAkut", 0)
-                        item["subacute"] = preds.get("Subakut", 0)
-                        item["normal_chronic"] = preds.get("NormalKronik", 0)
-            else:
-                results_map = {os.path.basename(res["file_path"]): res["prediction"] for res in self.prediction_results}
-                for item in final_json.get('tahminler', []):
-                    if item['filename'] in results_map:
-                        item["stroke"] = 1 if results_map[item['filename']] == "İnme" else 0
-                        item["stroke_type"] = 3
-        else:
-            tahminler = []
-            if self.modality == 'MR':
-                for res in self.prediction_results:
-                    tahminler.append({
-                        "PatientID": res["patient_id"],
-                        "hyperacute_acute": res["patient_level_preds"]["HiperakutAkut"],
-                        "subacute": res["patient_level_preds"]["Subakut"],
-                        "normal_chronic": res["patient_level_preds"]["NormalKronik"]
-                    })
-            elif self.modality == 'BT':
-                for res in self.prediction_results:
-                    tahminler.append({
-                        "filename": os.path.basename(res['file_path']),
-                        "stroke": 1 if res["prediction"] == "İnme" else 0,
-                        "stroke_type": 3
-                    })
-            final_json['tahminler'] = tahminler
-            
-        final_json['kunye'] = {
-            "takim_adi": takim_adi, "takim_id": takim_id,
-            "aciklama": f"{self.modality} Tahmin Verileri", "versiyon": "v3.0"
-        }
             
         modality_short = "CT" if self.modality == "BT" else "MR"
         default_filename = f"{takim_id}_{takim_adi.replace(' ', '_')}_{modality_short}_Yarisma.json"
         save_path, _ = QFileDialog.getSaveFileName(self, "Sonuçları Kaydet", default_filename, "JSON Dosyaları (*.json)")
         
         if save_path:
+            kunye = {"takim_adi": takim_adi, "takim_id": takim_id, "aciklama": f"{modality_short} Tahmin Verileri", "versiyon": "v1.0"}
+            tahminler = []
+            for result in self.prediction_results:
+                tahmin_obj = {
+                    "filename": os.path.basename(result["file_path"]),
+                    "stroke": 1 if result["prediction"] == "İnme" else 0,
+                    "stroke_type": 3
+                }
+                tahminler.append(tahmin_obj)
+            final_json = {"kunye": kunye, "tahminler": tahminler}
             try:
                 with open(save_path, 'w', encoding='utf-8') as f:
                     json.dump(final_json, f, ensure_ascii=False, indent=4)
-                QMessageBox.information(self, "Başarılı", f"Sonuçlar başarıyla '{os.path.basename(save_path)}' dosyasına kaydedildi.")
+                QMessageBox.information(self, "Başarılı", f"Sonuçlar '{os.path.basename(save_path)}' olarak kaydedildi.")
             except Exception as e:
-                QMessageBox.critical(self, "Kayıt Hatası", f"Dosya kaydedilirken bir hata oluştu:\n{str(e)}")
+                QMessageBox.critical(self, "Kayıt Hatası", f"Dosya kaydedilemedi:\n{str(e)}")
 
     def update_summary_panel(self):
         while self.results_layout.count():
             item = self.results_layout.takeAt(0)
             widget = item.widget()
             if widget: widget.deleteLater()
-        
-        total_items = self.table.rowCount() # Artık vaka veya dosya sayısı
-        statuses = [self.table.item(row, 1).text() for row in range(total_items)]
-        predictions = [self.table.item(row, 2).text() for row in range(total_items) if self.table.item(row, 1).text() == "Tamamlandı"]
-        
-        status_counts = Counter(statuses)
-        prediction_counts = Counter(predictions)
-        
+        total_files, statuses = self.table.rowCount(), [self.table.item(r, 1).text() for r in range(self.table.rowCount())]
+        predictions = [self.table.item(r, 2).text() for r in range(self.table.rowCount()) if self.table.item(r, 1).text() == "Tamamlandı"]
+        status_counts, prediction_counts = Counter(statuses), Counter(predictions)
         summary_title = QLabel("Analiz Sonuç Özeti")
         summary_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50; margin-bottom: 15px;")
         self.results_layout.addWidget(summary_title)
-        
-        summary_text = "Toplam Vaka:" if self.modality == "MR" else "Toplam Dosya:"
-        self.results_layout.addWidget(self.create_summary_label(summary_text, f"{total_items}"))
+        self.results_layout.addWidget(self.create_summary_label("Toplam Dosya:", f"{total_files}"))
         self.results_layout.addWidget(self.create_summary_label("Başarılı:", f"{status_counts.get('Tamamlandı', 0)}", "#27ae60"))
-        
-        separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Sunken)
+        self.results_layout.addWidget(self.create_summary_label("Hatalı:", f"{status_counts.get('Hata', 0)}", "#e74c3c"))
+        separator = QFrame(); separator.setFrameShape(QFrame.HLine); separator.setFrameShadow(QFrame.Sunken)
         separator.setStyleSheet("margin-top: 10px; margin-bottom: 10px;")
         self.results_layout.addWidget(separator)
-        
         prediction_title = QLabel("Tahmin Dağılımı")
         prediction_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #34495e; margin-bottom: 5px;")
         self.results_layout.addWidget(prediction_title)
-        
         if not prediction_counts:
-            no_preds_label = QLabel("Hiçbir başarılı tahmin bulunamadı.")
-            no_preds_label.setStyleSheet("font-style: italic;")
+            no_preds_label = QLabel("Hiçbir başarılı tahmin bulunamadı."); no_preds_label.setStyleSheet("font-style: italic;")
             self.results_layout.addWidget(no_preds_label)
         else:
-            # Multi-label için dağılımı daha doğru hesapla
-            if self.modality == 'MR':
-                all_preds = [pred for res in self.prediction_results for pred in res['prediction'].split(', ')]
-                prediction_counts = Counter(all_preds)
-
             for pred, count in prediction_counts.items():
-                self.results_layout.addWidget(self.create_summary_label(f"{pred}:", f"{count} vaka/dosya"))
+                self.results_layout.addWidget(self.create_summary_label(f"{pred}:", f"{count} dosya"))
         self.results_layout.addStretch()
         
     def create_summary_label(self, key_text, value_text, value_color=None):
-        widget = QWidget()
-        layout = QHBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        key_label = QLabel(key_text)
-        key_label.setStyleSheet("font-weight: bold;")
+        widget = QWidget(); layout = QHBoxLayout(widget); layout.setContentsMargins(0,0,0,0)
+        key_label = QLabel(key_text); key_label.setStyleSheet("font-weight: bold;")
         value_label = QLabel(value_text)
         if value_color: value_label.setStyleSheet(f"font-weight: bold; color: {value_color};")
-        layout.addWidget(key_label)
-        layout.addWidget(value_label)
-        layout.addStretch()
+        layout.addWidget(key_label); layout.addWidget(value_label); layout.addStretch()
         return widget
         
     def clear_files(self):
         self.file_paths.clear()
         self.prediction_results.clear()
         self.save_btn.setEnabled(False)
-        self.json_template = None
-        self.json_template_path = ""
         self.table.clearContents()
         self.table.setRowCount(0)
         self.progress_bar.setVisible(False)

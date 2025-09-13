@@ -5,9 +5,9 @@ import os
 import torch
 from PyQt5.QtWidgets import QApplication, QMainWindow, QStackedWidget, QMessageBox, QStyle
 
-# Yeni model sınıflarını ve sayfaları import et
 from model import MR_ConvNeXt, BT_ConvNeXt
-from pages import StartPage, AnalysisModePage, SingleAnalysisPage, MultiAnalysisPage
+# --- DEĞİŞTİ: Yeni çoklu analiz sayfalarını import et ---
+from pages import StartPage, AnalysisModePage, SingleAnalysisPage, MultiAnalysisPageMR, MultiAnalysisPageBT
 
 class MedicalImageAnalyzer(QMainWindow):
     """Ana uygulama sınıfı"""
@@ -21,7 +21,6 @@ class MedicalImageAnalyzer(QMainWindow):
         
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        # Eğitim kodlarındaki isimlerle eşleşen modelleri yükle
         self.mr_models = self._load_models_from_path("Models/MR", MR_ConvNeXt, "MR")
         self.bt_models = self._load_models_from_path("Models/BT", BT_ConvNeXt, "BT")
         
@@ -35,7 +34,6 @@ class MedicalImageAnalyzer(QMainWindow):
         self.start_page.modality_selected.connect(self.show_mode_page)
         self.stack.addWidget(self.start_page)
         
-        # Sayfa geçmişini tutmak için bir liste
         self.page_history = []
         
         self.status_bar = self.statusBar()
@@ -44,7 +42,6 @@ class MedicalImageAnalyzer(QMainWindow):
         self.setWindowIcon(self.style().standardIcon(QStyle.SP_ComputerIcon))
     
     def _load_models_from_path(self, model_path, model_class_or_function, label):
-        """Belirtilen yoldaki tüm .pt ve .pth dosyalarını yükler."""
         models = []
         if not os.path.isdir(model_path):
             QMessageBox.critical(None, f"{label} Model Hatası", f"'{model_path}' klasörü bulunamadı!")
@@ -59,14 +56,14 @@ class MedicalImageAnalyzer(QMainWindow):
                 path = os.path.join(model_path, model_file)
                 model = model_class_or_function()
                 
-                # Checkpoint dosyasını yükle (güvenlik uyarısını geçmek için weights_only=False)
                 ckpt = torch.load(path, map_location=self.device, weights_only=False)
                 
-                # Checkpoint bir sözlük mü ve içinde 'state_dict' var mı diye kontrol et
                 if isinstance(ckpt, dict) and "state_dict" in ckpt:
-                    model.load_state_dict(ckpt["state_dict"], strict=False)
+                    state_dict_to_load = ckpt["state_dict"]
                 else:
-                    model.load_state_dict(ckpt, strict=False)
+                    state_dict_to_load = ckpt
+                
+                model.load_state_dict(state_dict_to_load, strict=False)
 
                 model.to(self.device)
                 model.eval()
@@ -94,29 +91,28 @@ class MedicalImageAnalyzer(QMainWindow):
         if current_page not in self.page_history:
             self.page_history.append(current_page)
 
-        if modality == "MR":
-            models_to_use, labels_to_use = self.mr_models, self.label_names_mr
-        elif modality == "BT":
-            models_to_use, labels_to_use = self.bt_models, self.label_names_bt
-        else:
-            return
+        models_to_use, labels_to_use = (self.mr_models, self.label_names_mr) if modality == "MR" else (self.bt_models, self.label_names_bt)
 
         if not models_to_use:
-            QMessageBox.warning(self, "Model Eksik", f"'{modality}' için yüklenmiş model bulunamadı. Lütfen 'Models/{modality}' klasörünü kontrol edin.")
-            self.go_back() # Bir önceki sayfaya geri dön
+            QMessageBox.warning(self, "Model Eksik", f"'{modality}' için yüklenmiş model bulunamadı.")
+            self.go_back()
             return
 
+        analysis_page = None
         if mode == "single":
             analysis_page = SingleAnalysisPage(modality, models_to_use, self.device, labels_to_use)
-        else:
-            analysis_page = MultiAnalysisPage(modality, models_to_use, self.device, labels_to_use)
+        else: # multi modu
+            if modality == "MR":
+                analysis_page = MultiAnalysisPageMR(modality, models_to_use, self.device, labels_to_use)
+            elif modality == "BT":
+                analysis_page = MultiAnalysisPageBT(modality, models_to_use, self.device, labels_to_use)
         
-        analysis_page.back_clicked.connect(self.go_back)
-        self.stack.addWidget(analysis_page)
-        self.stack.setCurrentWidget(analysis_page)
+        if analysis_page:
+            analysis_page.back_clicked.connect(self.go_back)
+            self.stack.addWidget(analysis_page)
+            self.stack.setCurrentWidget(analysis_page)
     
     def go_back(self):
-        """Geçmişteki bir önceki sayfaya döner."""
         if self.page_history:
             page_to_remove = self.stack.currentWidget()
             self.stack.removeWidget(page_to_remove)
@@ -139,13 +135,9 @@ class MedicalImageAnalyzer(QMainWindow):
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Medikal Görüntü Analiz Sistemi")
-    app.setApplicationVersion("3.0")
-    app.setOrganizationName("Medical AI Solutions")
     app.setStyle('Fusion')
-    
     window = MedicalImageAnalyzer()
     window.show()
-    
     sys.exit(app.exec_())
 
 if __name__ == "__main__":

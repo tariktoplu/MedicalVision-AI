@@ -155,6 +155,7 @@ class AnalysisWorker(QThread):
 
 
 class MultiAnalysisWorker(QThread):
+    # --- DÜZELTME BURADA: Eksik sinyaller eklendi ---
     file_progress = pyqtSignal(int, str, list)
     file_error = pyqtSignal(int, str)
     all_finished = pyqtSignal()
