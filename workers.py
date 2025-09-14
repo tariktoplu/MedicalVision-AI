@@ -71,27 +71,19 @@ class AnalysisWorker(QThread):
             self.progress.emit("Model analizi yapılıyor...")
             
             if self.modality == 'MR':
-                logits_list = []
+                # --- TEKLİ ANALİZ: En yüksek olasılığa sahip TEK bir sınıfı seçer ---
+                predictions = []
                 with torch.no_grad():
                     for model in self.models:
                         output = model(image_tensor_gpu)
-                        logits_list.append(output)
+                        pred_probs = torch.softmax(output, dim=1)
+                        predictions.append(pred_probs.cpu().numpy()[0])
                 
-                avg_logits = torch.mean(torch.stack(logits_list), dim=0)
-                probabilities = torch.sigmoid(avg_logits).cpu().numpy()[0]
-                
-                ML_THRESH = 0.5
-                preds_binary = (probabilities >= ML_THRESH).astype(int)
-                
-                if np.sum(preds_binary) == 0:
-                    top_prediction_idx = np.argmax(probabilities)
-                    preds_binary = np.zeros_like(preds_binary)
-                    preds_binary[top_prediction_idx] = 1
-                
-                predicted_labels = [self.label_names[i] for i, val in enumerate(preds_binary) if val == 1]
-                predicted_label_str = ", ".join(predicted_labels)
-                all_probabilities_percent = (probabilities * 100).tolist()
-                self.finished.emit(predicted_label_str, all_probabilities_percent)
+                avg_prediction = np.mean(predictions, axis=0)
+                predicted_class_idx = np.argmax(avg_prediction)
+                predicted_label = self.label_names[predicted_class_idx]
+                all_probabilities = (avg_prediction * 100).tolist()
+                self.finished.emit(predicted_label, all_probabilities)
             
             elif self.modality == 'BT':
                 outputs = []
@@ -155,7 +147,6 @@ class AnalysisWorker(QThread):
 
 
 class MultiAnalysisWorker(QThread):
-    # --- DÜZELTME BURADA: Eksik sinyaller eklendi ---
     file_progress = pyqtSignal(int, str, list)
     file_error = pyqtSignal(int, str)
     all_finished = pyqtSignal()
@@ -175,6 +166,7 @@ class MultiAnalysisWorker(QThread):
                 image_tensor_gpu = image_tensor.to(self.device)
                 
                 if self.modality == 'MR':
+                    # --- ÇOKLU ANALİZ: Multi-label mantığını korur ---
                     logits_list = []
                     with torch.no_grad():
                         for model in self.models:

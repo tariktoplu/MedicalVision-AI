@@ -3,7 +3,6 @@
 import os
 from collections import Counter
 import json
-# --- DÜZELTME BURADA: Eksik QStyle ve QHeaderView eklendi ---
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame, 
                              QScrollArea, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem, 
                              QHeaderView, QAbstractItemView, QProgressBar, QSplitter, QStyle, 
@@ -65,10 +64,29 @@ class BaseMultiAnalysisPage(QWidget):
         self.file_paths = []
         self.scanner_worker = None
         self.analysis_worker = None
-        self.prediction_results = {} # PID veya file_path -> tahminler
+        self.prediction_results = {}
         self.setAcceptDrops(True)
         self.setup_ui()
     
+    # --- DEĞİŞTİ: Geri gitme mantığı güncellendi ---
+    def safe_go_back(self):
+        """Geri gitmeden önce çalışan işçiyi anında sonlandırır."""
+        # Hem tarama işçisi hem de analiz işçisi kontrol edilir.
+        worker_to_terminate = None
+        if hasattr(self, 'scanner_worker') and self.scanner_worker and self.scanner_worker.isRunning():
+            worker_to_terminate = self.scanner_worker
+        elif hasattr(self, 'analysis_worker') and self.analysis_worker and self.analysis_worker.isRunning():
+            worker_to_terminate = self.analysis_worker
+        
+        if worker_to_terminate:
+            print(f"Çalışan bir işçi ({type(worker_to_terminate).__name__}) bulundu. Sonlandırılıyor...")
+            worker_to_terminate.terminate() # İş parçacığını zorla sonlandır
+            worker_to_terminate.wait() # Sonlandığından emin olmak için kısa bir süre bekle
+            print("İşçi sonlandırıldı.")
+        
+        QApplication.restoreOverrideCursor() # İmlecin bekleme modunda kalmasını engelle
+        self.back_clicked.emit()
+            
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
             event.acceptProposedAction(); self.left_panel.setStyleSheet(self.style_sheet_drop_active)
@@ -93,7 +111,7 @@ class BaseMultiAnalysisPage(QWidget):
         back_btn = QPushButton(self.style().standardIcon(QStyle.SP_ArrowLeft), " Geri")
         back_btn.setFixedSize(100, 40)
         back_btn.setStyleSheet("QPushButton { font-size: 14px; background-color: #7f8c8d; color: white; border: none; border-radius: 8px; } QPushButton:hover { background-color: #95a5a6; }")
-        back_btn.clicked.connect(self.back_clicked.emit)
+        back_btn.clicked.connect(self.safe_go_back)
         top_bar.addWidget(back_btn)
         
         self.title_label = QLabel(f"{self.modality} - Çoklu Analiz")
@@ -255,28 +273,27 @@ class BaseMultiAnalysisPage(QWidget):
             item = self.results_layout.takeAt(0)
             widget = item.widget()
             if widget: widget.deleteLater()
-        total_files = self.table.rowCount()
-        statuses = [self.table.item(r, 1).text() for r in range(self.table.rowCount())]
-        predictions = [self.table.item(r, 2).text() for r in range(self.table.rowCount()) if self.table.item(r, 1).text() == "Tamamlandı"]
-        status_counts, prediction_counts = Counter(statuses), Counter(predictions)
+        total_files = len(self.prediction_results)
         summary_title = QLabel("Analiz Sonuç Özeti")
         summary_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50; margin-bottom: 15px;")
         self.results_layout.addWidget(summary_title)
-        self.results_layout.addWidget(self.create_summary_label("Toplam Dosya:", f"{total_files}"))
-        self.results_layout.addWidget(self.create_summary_label("Başarılı:", f"{status_counts.get('Tamamlandı', 0)}", "#27ae60"))
-        self.results_layout.addWidget(self.create_summary_label("Hatalı:", f"{status_counts.get('Hata', 0)}", "#e74c3c"))
+        self.results_layout.addWidget(self.create_summary_label("Toplam Analiz Edilen:", f"{total_files}"))
         separator = QFrame(); separator.setFrameShape(QFrame.HLine); separator.setFrameShadow(QFrame.Sunken)
         separator.setStyleSheet("margin-top: 10px; margin-bottom: 10px;")
         self.results_layout.addWidget(separator)
         prediction_title = QLabel("Tahmin Dağılımı")
         prediction_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #34495e; margin-bottom: 5px;")
         self.results_layout.addWidget(prediction_title)
+        
+        predictions = [res["prediction"] for res in self.prediction_results.values()]
+        prediction_counts = Counter(predictions)
+
         if not prediction_counts:
             no_preds_label = QLabel("Hiçbir başarılı tahmin bulunamadı."); no_preds_label.setStyleSheet("font-style: italic;")
             self.results_layout.addWidget(no_preds_label)
         else:
             for pred, count in prediction_counts.items():
-                self.results_layout.addWidget(self.create_summary_label(f"{pred}:", f"{count} dosya"))
+                self.results_layout.addWidget(self.create_summary_label(f"{pred}:", f"{count}"))
         self.results_layout.addStretch()
         
     def create_summary_label(self, key_text, value_text, value_color=None):
@@ -303,6 +320,8 @@ class BaseMultiAnalysisPage(QWidget):
     def start_analysis(self):
         raise NotImplementedError
     def update_file_result(self, index, prediction, probabilities):
+        raise NotImplementedError
+    def on_analysis_finished(self, results):
         raise NotImplementedError
     def save_results_to_json(self, takim_adi, takim_id):
         raise NotImplementedError
