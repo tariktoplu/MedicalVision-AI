@@ -3,11 +3,11 @@
 import os
 import json
 from collections import Counter
-from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTableWidgetItem, QHeaderView, QStyle, QLabel, QHBoxLayout, QFrame, QWidget
+from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTableWidgetItem, QHeaderView, QStyle, QLabel, QFrame, QWidget, QHBoxLayout
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtCore import Qt
 
-from .base_page import BaseMultiAnalysisPage, KunyeDialog
+from .base_page import BaseMultiAnalysisPage
 from workers import MultiAnalysisWorker
 
 class MultiAnalysisPageBT(BaseMultiAnalysisPage):
@@ -44,40 +44,44 @@ class MultiAnalysisPageBT(BaseMultiAnalysisPage):
         self.right_stack.setCurrentWidget(self.initial_summary_widget)
         
         WorkerClass = self.get_worker_class()
-        self.analysis_worker = WorkerClass(self.models, self.device, self.file_paths, self.label_names, self.modality, parent=self)
+        self.analysis_worker = WorkerClass(self.models, self.device, self.file_paths, self.label_names, self.modality)
+        
         self.analysis_worker.file_progress.connect(self.update_file_result)
         self.analysis_worker.file_error.connect(self.update_file_error)
-        self.analysis_worker.all_finished.connect(self.analysis_finished)
+        self.analysis_worker.all_finished.connect(self.on_analysis_finished)
         self.analysis_worker.start()
 
     def update_file_result(self, index, prediction, probabilities):
         self.set_status_badge(index, "Tamamlandı", "#27ae60")
         self.table.setItem(index, 2, QTableWidgetItem(prediction))
+        
         pred_item = self.table.item(index, 2)
         pred_item.setForeground(QColor("#c0392b"))
         pred_item.setFont(QFont("Arial", -1, QFont.Bold))
-        self.progress_bar.setValue(self.progress_bar.value() + 1)
-        self.prediction_results[self.file_paths[index]] = {"prediction": prediction}
         
+        self.progress_bar.setValue(self.progress_bar.value() + 1)
+        
+        self.prediction_results[self.file_paths[index]] = {"prediction": prediction}
+
     def on_analysis_finished(self):
         super().analysis_finished()
-
-    def open_kunye_dialog_and_save(self):
-        super().open_kunye_dialog_and_save()
 
     def save_results_to_json(self, takim_adi, takim_id):
         if not self.prediction_results:
             QMessageBox.warning(self, "Kayıt Hatası", "Kaydedilecek sonuç bulunmuyor.")
             return
+            
         modality_short = "CT"
         default_filename = f"{takim_id}_{takim_adi.replace(' ', '_')}_{modality_short}_Yarisma.json"
         save_path, _ = QFileDialog.getSaveFileName(self, "Sonuçları Kaydet", default_filename, "JSON Dosyaları (*.json)")
+        
         if save_path:
             kunye = {"takim_adi": takim_adi, "takim_id": takim_id, "aciklama": f"{modality_short} Tahmin Verileri", "versiyon": "v1.0"}
             tahminler = []
             for file_path, result in self.prediction_results.items():
                 tahmin_obj = {"filename": os.path.basename(file_path), "stroke": 1 if result["prediction"] == "İnme" else 0, "stroke_type": 3}
                 tahminler.append(tahmin_obj)
+            
             final_json = {"kunye": kunye, "tahminler": tahminler}
             try:
                 with open(save_path, 'w', encoding='utf-8') as f:
@@ -87,26 +91,29 @@ class MultiAnalysisPageBT(BaseMultiAnalysisPage):
                 QMessageBox.critical(self, "Kayıt Hatası", f"Dosya kaydedilemedi:\n{str(e)}")
 
     def update_summary_panel(self):
-        while self.results_layout.count():
-            item = self.results_layout.takeAt(0)
-            widget = item.widget()
-            if widget: widget.deleteLater()
+        super().update_summary_panel()
+        
         total_files = self.table.rowCount()
         statuses = [self.table.item(r, 1).text() for r in range(self.table.rowCount())]
         predictions = [self.table.item(r, 2).text() for r in range(self.table.rowCount()) if self.table.item(r, 1).text() == "Tamamlandı"]
         status_counts, prediction_counts = Counter(statuses), Counter(predictions)
+        
         summary_title = QLabel("Analiz Sonuç Özeti")
         summary_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50; margin-bottom: 15px;")
         self.results_layout.addWidget(summary_title)
+        
         self.results_layout.addWidget(self.create_summary_label("Toplam Dosya:", f"{total_files}"))
         self.results_layout.addWidget(self.create_summary_label("Başarılı:", f"{status_counts.get('Tamamlandı', 0)}", "#27ae60"))
         self.results_layout.addWidget(self.create_summary_label("Hatalı:", f"{status_counts.get('Hata', 0)}", "#e74c3c"))
+        
         separator = QFrame(); separator.setFrameShape(QFrame.HLine); separator.setFrameShadow(QFrame.Sunken)
         separator.setStyleSheet("margin-top: 10px; margin-bottom: 10px;")
         self.results_layout.addWidget(separator)
+        
         prediction_title = QLabel("Tahmin Dağılımı")
         prediction_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #34495e; margin-bottom: 5px;")
         self.results_layout.addWidget(prediction_title)
+        
         if not prediction_counts:
             no_preds_label = QLabel("Hiçbir başarılı tahmin bulunamadı."); no_preds_label.setStyleSheet("font-style: italic;")
             self.results_layout.addWidget(no_preds_label)
@@ -115,10 +122,19 @@ class MultiAnalysisPageBT(BaseMultiAnalysisPage):
                 self.results_layout.addWidget(self.create_summary_label(f"{pred}:", f"{count} dosya"))
         self.results_layout.addStretch()
 
-    def create_summary_label(self, key_text, value_text, value_color=None):
-        widget = QWidget(); layout = QHBoxLayout(widget); layout.setContentsMargins(0,0,0,0)
-        key_label = QLabel(key_text); key_label.setStyleSheet("font-weight: bold;")
-        value_label = QLabel(value_text)
-        if value_color: value_label.setStyleSheet(f"font-weight: bold; color: {value_color};")
-        layout.addWidget(key_label); layout.addWidget(value_label); layout.addStretch()
-        return widget
+    def update_file_error(self, index, error_message):
+        # Durumu kırmızı renkte 'Hata' olarak göster
+        self.set_status_badge(index, "Hata", "#e74c3c")
+        self.table.setItem(index, 2, QTableWidgetItem("-"))
+        
+        # İsteğe bağlı: kullanıcıya uyarı göster
+        # QMessageBox.warning(self, "Analiz Hatası",
+        #                     f"{os.path.basename(self.file_paths[index])} dosyasında hata:\n{error_message}")
+        
+        # Progress bar'ı güncelle
+        self.progress_bar.setValue(self.progress_bar.value() + 1)
+        
+        # Hata mesajını kaydetmek isterseniz prediction_results'a ekleyebilirsiniz
+        self.prediction_results[self.file_paths[index]] = {
+            "prediction": f"Hata: {error_message}"
+        }

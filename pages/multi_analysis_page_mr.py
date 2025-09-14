@@ -3,27 +3,23 @@
 import os
 import json
 from collections import defaultdict, Counter
-import torch
 import numpy as np
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame, 
-                             QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem, 
-                             QHeaderView, QAbstractItemView, QProgressBar, QSplitter, QStyle, 
-                             QApplication)
-from PyQt5.QtCore import Qt, pyqtSignal, QThread, QSize
-from PyQt5.QtGui import (QColor, QFont, QDragEnterEvent, QDragLeaveEvent, QDropEvent, QIcon,
-                         QCursor)
+import torch
+from PyQt5.QtWidgets import (QWidget, QTableWidgetItem, QMessageBox, QFileDialog, QHeaderView, 
+                             QStyle, QLabel, QHBoxLayout, QFrame)
+from PyQt5.QtCore import QThread, pyqtSignal, Qt
+from PyQt5.QtGui import QFont
 
 from .base_page import BaseMultiAnalysisPage
 from workers import AnalysisWorker
 
-# --- MR'a Özel Worker (Sonn.py'deki TEKİL TAHMİN mantığı ile güncellendi) ---
 class MRAggregationWorker(QThread):
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
     progress = pyqtSignal(int, int)
 
-    def __init__(self, models, device, file_paths, label_names, parent=None):
-        super().__init__(parent)
+    def __init__(self, models, device, file_paths, label_names):
+        super().__init__()
         self.models = models
         self.device = device
         self.file_paths = file_paths
@@ -32,53 +28,35 @@ class MRAggregationWorker(QThread):
     def get_patient_id_from_path(self, path, common_path):
         try:
             relative_path = os.path.relpath(os.path.dirname(path), common_path)
-            if relative_path == '.': return os.path.basename(common_path)
+            if relative_path == '.':
+                return os.path.basename(common_path)
             return relative_path.split(os.sep)[0]
         except (IndexError, ValueError):
             return "unknown_" + os.path.basename(os.path.dirname(path))
 
     def run(self):
         try:
-            # Her hastanın dilim bazlı tahminlerini (indeks olarak) sakla
             patient_slice_preds = defaultdict(list)
-            
             if not self.file_paths: self.finished.emit({}); return
             common_path = os.path.dirname(self.file_paths[0])
             if len(self.file_paths) > 1: common_path = os.path.commonpath(self.file_paths)
-
             for i, file_path in enumerate(self.file_paths):
-                if self.isInterruptionRequested():
-                    print("MR Analizi kullanıcı tarafından iptal edildi.")
-                    return # run metodundan güvenle çık
-                
+                if self.isInterruptionRequested(): return
                 temp_worker = AnalysisWorker(self.models, self.device, file_path, self.label_names, 'MR')
                 tensor = temp_worker.preprocess_image(file_path).to(self.device)
-                
                 with torch.no_grad():
                     logits_list = [model(tensor) for model in self.models]
                     avg_logits = torch.mean(torch.stack(logits_list), dim=0)
-                    
-                    # --- DEĞİŞİKLİK BURADA: Artık sigmoid yok, sadece argmax ---
-                    # Her dilim için sadece en olası TEK bir sınıf seçilir.
                     pred_idx = torch.argmax(avg_logits, dim=1).item()
-                    
                     pid = self.get_patient_id_from_path(file_path, common_path)
                     patient_slice_preds[pid].append(pred_idx)
-                    
                 self.progress.emit(i + 1, len(self.file_paths))
-
-            # --- DEĞİŞİKLİK BURADA: Tahmin birleştirme mantığı güncellendi ---
-            # Bir hastanın tüm dilim tahminlerini bir araya getirip,
-            # o hasta için hangi bulguların tespit edildiğini buluyoruz.
             patient_final_preds = {}
             for pid, preds in patient_slice_preds.items():
                 final_pred_vector = [0] * len(self.label_names)
-                # O hastanın dilimlerinden birinde bir sınıf bulunduysa,
-                # o sınıfı hasta için 1 olarak işaretle (multi-label birleştirme)
-                for pred_idx in set(preds): # set() ile tekrar edenleri kaldır
+                for pred_idx in set(preds):
                     final_pred_vector[pred_idx] = 1
                 patient_final_preds[pid] = final_pred_vector
-
             self.finished.emit(patient_final_preds)
         except Exception as e:
             self.error.emit(f"Hasta bazlı analiz hatası: {str(e)}")
@@ -110,8 +88,7 @@ class MultiAnalysisPageMR(BaseMultiAnalysisPage):
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("Dilimler analiz ediliyor: %v/%m")
         WorkerClass = self.get_worker_class()
-        
-        self.analysis_worker = WorkerClass(self.models, self.device, self.file_paths, self.label_names, parent=self)
+        self.analysis_worker = WorkerClass(self.models, self.device, self.file_paths, self.label_names)
         self.analysis_worker.progress.connect(self.update_progress_bar)
         self.analysis_worker.error.connect(self.on_analysis_error)
         self.analysis_worker.finished.connect(self.on_analysis_finished)
@@ -154,12 +131,7 @@ class MultiAnalysisPageMR(BaseMultiAnalysisPage):
             kunye = {"takim_adi": takim_adi, "takim_id": takim_id, "aciklama": "MR Tahmin Verileri", "versiyon": "v2.0"}
             tahminler = []
             for pid, pred_vector in sorted(self.prediction_results.items()):
-                tahmin_obj = {
-                    "PatientID": pid,
-                    "hyperacute_acute": pred_vector[0],
-                    "subacute": pred_vector[1],
-                    "normal_chronic": pred_vector[2]
-                }
+                tahmin_obj = { "PatientID": pid, "hyperacute_acute": pred_vector[0], "subacute": pred_vector[1], "normal_chronic": pred_vector[2] }
                 tahminler.append(tahmin_obj)
             final_json = {"kunye": kunye, "tahminler": tahminler}
             try:
@@ -197,11 +169,6 @@ class MultiAnalysisPageMR(BaseMultiAnalysisPage):
             for pred, count in sorted(prediction_counts.items()):
                 self.results_layout.addWidget(self.create_summary_label(f"{pred}:", f"{count} hasta"))
         self.results_layout.addStretch()
-
-    def clear_files(self):
-        super().clear_files()
-        self.table.setColumnCount(2)
-        self.table.setHorizontalHeaderLabels(['Hasta ID', 'Tahmin Edilen Durum(lar)'])
 
     def populate_table(self):
         self.table.clearContents()

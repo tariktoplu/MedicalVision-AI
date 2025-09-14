@@ -12,7 +12,6 @@ from PyQt5.QtCore import Qt, pyqtSignal, QThread, QSize
 from PyQt5.QtGui import (QColor, QFont, QDragEnterEvent, QDragLeaveEvent, QDropEvent, QIcon,
                          QCursor)
 
-# --- Yardımcı Sınıflar (Tüm sayfalarda ortak) ---
 class KunyeDialog(QDialog):
     def __init__(self, takim_adi, takim_id, parent=None):
         super().__init__(parent)
@@ -68,23 +67,26 @@ class BaseMultiAnalysisPage(QWidget):
         self.setAcceptDrops(True)
         self.setup_ui()
     
-    # --- DEĞİŞTİ: Geri gitme mantığı güncellendi ---
-    def safe_go_back(self):
-        """Geri gitmeden önce çalışan işçiyi anında sonlandırır."""
-        # Hem tarama işçisi hem de analiz işçisi kontrol edilir.
-        worker_to_terminate = None
+    def disconnect_worker_signals(self):
+        worker = None
         if hasattr(self, 'scanner_worker') and self.scanner_worker and self.scanner_worker.isRunning():
-            worker_to_terminate = self.scanner_worker
+            worker = self.scanner_worker
         elif hasattr(self, 'analysis_worker') and self.analysis_worker and self.analysis_worker.isRunning():
-            worker_to_terminate = self.analysis_worker
+            worker = self.analysis_worker
         
-        if worker_to_terminate:
-            print(f"Çalışan bir işçi ({type(worker_to_terminate).__name__}) bulundu. Sonlandırılıyor...")
-            worker_to_terminate.terminate() # İş parçacığını zorla sonlandır
-            worker_to_terminate.wait() # Sonlandığından emin olmak için kısa bir süre bekle
-            print("İşçi sonlandırıldı.")
-        
-        QApplication.restoreOverrideCursor() # İmlecin bekleme modunda kalmasını engelle
+        if worker:
+            try:
+                if hasattr(worker, 'progress'): worker.progress.disconnect()
+                if hasattr(worker, 'file_progress'): worker.file_progress.disconnect()
+                if hasattr(worker, 'finished'): worker.finished.disconnect()
+                if hasattr(worker, 'error'): worker.error.disconnect()
+                if hasattr(worker, 'all_finished'): worker.all_finished.disconnect()
+            except TypeError:
+                pass
+
+    def safe_go_back(self):
+        self.disconnect_worker_signals()
+        QApplication.restoreOverrideCursor()
         self.back_clicked.emit()
             
     def dragEnterEvent(self, event: QDragEnterEvent):
@@ -218,6 +220,7 @@ class BaseMultiAnalysisPage(QWidget):
         QMessageBox.critical(self, "Tarama Hatası", error_message)
 
     def set_ui_enabled(self, enabled):
+        # Bu metot alt sınıflarda ezilebilir
         self.upload_file_btn.setEnabled(enabled)
         self.upload_folder_btn.setEnabled(enabled)
         self.clear_btn.setEnabled(enabled)
@@ -246,19 +249,11 @@ class BaseMultiAnalysisPage(QWidget):
         font = QFont(); font.setBold(True); item.setFont(font)
         self.table.setItem(row, 1, item)
     
-    def update_file_error(self, index, error_message):
-        self.set_status_badge(index, "Hata", "#e74c3c")
-        self.table.setItem(index, 2, QTableWidgetItem("Hata oluştu"))
-        self.progress_bar.setValue(self.progress_bar.value() + 1)
-
-    def analysis_finished(self):
+    def on_analysis_error(self, error_message):
         self.set_ui_enabled(True)
-        if self.prediction_results:
-            self.save_btn.setEnabled(True)
-        self.progress_bar.setFormat("Analiz tamamlandı!")
-        self.update_summary_panel()
-        self.right_stack.setCurrentWidget(self.results_summary_widget)
-        
+        self.progress_bar.setFormat("Hata oluştu!")
+        QMessageBox.critical(self, "Analiz Hatası", error_message)
+
     def open_kunye_dialog_and_save(self):
         dialog = KunyeDialog("TUSEB_SYZ_" + self.modality, "987654", self)
         if dialog.exec_() == QDialog.Accepted:
@@ -273,29 +268,7 @@ class BaseMultiAnalysisPage(QWidget):
             item = self.results_layout.takeAt(0)
             widget = item.widget()
             if widget: widget.deleteLater()
-        total_files = len(self.prediction_results)
-        summary_title = QLabel("Analiz Sonuç Özeti")
-        summary_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50; margin-bottom: 15px;")
-        self.results_layout.addWidget(summary_title)
-        self.results_layout.addWidget(self.create_summary_label("Toplam Analiz Edilen:", f"{total_files}"))
-        separator = QFrame(); separator.setFrameShape(QFrame.HLine); separator.setFrameShadow(QFrame.Sunken)
-        separator.setStyleSheet("margin-top: 10px; margin-bottom: 10px;")
-        self.results_layout.addWidget(separator)
-        prediction_title = QLabel("Tahmin Dağılımı")
-        prediction_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #34495e; margin-bottom: 5px;")
-        self.results_layout.addWidget(prediction_title)
-        
-        predictions = [res["prediction"] for res in self.prediction_results.values()]
-        prediction_counts = Counter(predictions)
-
-        if not prediction_counts:
-            no_preds_label = QLabel("Hiçbir başarılı tahmin bulunamadı."); no_preds_label.setStyleSheet("font-style: italic;")
-            self.results_layout.addWidget(no_preds_label)
-        else:
-            for pred, count in prediction_counts.items():
-                self.results_layout.addWidget(self.create_summary_label(f"{pred}:", f"{count}"))
-        self.results_layout.addStretch()
-        
+            
     def create_summary_label(self, key_text, value_text, value_color=None):
         widget = QWidget(); layout = QHBoxLayout(widget); layout.setContentsMargins(0,0,0,0)
         key_label = QLabel(key_text); key_label.setStyleSheet("font-weight: bold;")
@@ -305,6 +278,7 @@ class BaseMultiAnalysisPage(QWidget):
         return widget
         
     def clear_files(self):
+        self.disconnect_worker_signals()
         self.file_paths.clear()
         self.prediction_results.clear()
         self.save_btn.setEnabled(False)
@@ -315,15 +289,9 @@ class BaseMultiAnalysisPage(QWidget):
         self.right_stack.setCurrentWidget(self.initial_summary_widget)
 
     # --- ALT SINIFLARIN EZMESİ GEREKEN METOTLAR ---
-    def get_worker_class(self):
-        raise NotImplementedError
-    def start_analysis(self):
-        raise NotImplementedError
-    def update_file_result(self, index, prediction, probabilities):
-        raise NotImplementedError
-    def on_analysis_finished(self, results):
-        raise NotImplementedError
-    def save_results_to_json(self, takim_adi, takim_id):
-        raise NotImplementedError
-    def populate_table(self):
-        raise NotImplementedError
+    def get_worker_class(self): raise NotImplementedError
+    def start_analysis(self): raise NotImplementedError
+    def update_file_result(self, index, prediction, probabilities): raise NotImplementedError
+    def on_analysis_finished(self, results): raise NotImplementedError
+    def save_results_to_json(self, takim_adi, takim_id): raise NotImplementedError
+    def populate_table(self): raise NotImplementedError

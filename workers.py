@@ -55,8 +55,8 @@ class AnalysisWorker(QThread):
     finished = pyqtSignal(str, list)
     error = pyqtSignal(str)
     
-    def __init__(self, models, device, file_path, label_names, modality):
-        super().__init__()
+    def __init__(self, models, device, file_path, label_names, modality, parent=None):
+        super().__init__(parent)
         self.models = models
         self.device = device
         self.file_path = file_path
@@ -65,20 +65,23 @@ class AnalysisWorker(QThread):
         
     def run(self):
         try:
+            if self.isInterruptionRequested(): return
             self.progress.emit("Görüntü işleniyor...")
             image_tensor = self.preprocess_image(self.file_path)
+            if image_tensor is None:
+                raise Exception("Görüntü işlenemedi veya desteklenmiyor.")
             image_tensor_gpu = image_tensor.to(self.device)
+            if self.isInterruptionRequested(): return
             self.progress.emit("Model analizi yapılıyor...")
             
             if self.modality == 'MR':
-                # --- TEKLİ ANALİZ: En yüksek olasılığa sahip TEK bir sınıfı seçer ---
                 predictions = []
                 with torch.no_grad():
                     for model in self.models:
+                        if self.isInterruptionRequested(): return
                         output = model(image_tensor_gpu)
                         pred_probs = torch.softmax(output, dim=1)
                         predictions.append(pred_probs.cpu().numpy()[0])
-                
                 avg_prediction = np.mean(predictions, axis=0)
                 predicted_class_idx = np.argmax(avg_prediction)
                 predicted_label = self.label_names[predicted_class_idx]
@@ -89,6 +92,7 @@ class AnalysisWorker(QThread):
                 outputs = []
                 with torch.no_grad():
                     for model in self.models:
+                        if self.isInterruptionRequested(): return
                         output = model(image_tensor_gpu)
                         outputs.append(output.cpu().numpy()[0][0])
                 avg_prob_stroke = np.mean(outputs)
@@ -151,8 +155,8 @@ class MultiAnalysisWorker(QThread):
     file_error = pyqtSignal(int, str)
     all_finished = pyqtSignal()
     
-    def __init__(self, models, device, file_paths, label_names, modality):
-        super().__init__()
+    def __init__(self, models, device, file_paths, label_names, modality, parent=None):
+        super().__init__(parent)
         self.models = models
         self.device = device
         self.file_paths = file_paths
@@ -161,29 +165,17 @@ class MultiAnalysisWorker(QThread):
 
     def run(self):
         for i, file_path in enumerate(self.file_paths):
+            if self.isInterruptionRequested():
+                print("BT Analizi kullanıcı tarafından iptal edildi.")
+                return
+
             try:
                 image_tensor = self.preprocess_image(file_path)
                 image_tensor_gpu = image_tensor.to(self.device)
                 
                 if self.modality == 'MR':
-                    # --- ÇOKLU ANALİZ: Multi-label mantığını korur ---
-                    logits_list = []
-                    with torch.no_grad():
-                        for model in self.models:
-                            output = model(image_tensor_gpu)
-                            logits_list.append(output)
-                    avg_logits = torch.mean(torch.stack(logits_list), dim=0)
-                    probabilities = torch.sigmoid(avg_logits).cpu().numpy()[0]
-                    ML_THRESH = 0.5
-                    preds_binary = (probabilities >= ML_THRESH).astype(int)
-                    if np.sum(preds_binary) == 0:
-                        top_prediction_idx = np.argmax(probabilities)
-                        preds_binary = np.zeros_like(preds_binary)
-                        preds_binary[top_prediction_idx] = 1
-                    predicted_labels = [self.label_names[i] for i, val in enumerate(preds_binary) if val == 1]
-                    predicted_label_str = ", ".join(predicted_labels)
-                    all_probabilities_percent = (probabilities * 100).tolist()
-                    self.file_progress.emit(i, predicted_label_str, all_probabilities_percent)
+                    # Bu worker BT için, bu bloğa girilmemeli.
+                    pass
                 elif self.modality == 'BT':
                     outputs = []
                     with torch.no_grad():
@@ -198,7 +190,12 @@ class MultiAnalysisWorker(QThread):
                     self.file_progress.emit(i, predicted_label, all_probabilities)
             except Exception as e:
                 self.file_error.emit(i, str(e))
-        self.all_finished.emit()
+        
+        # Sadece işlem normal bittiğinde bu sinyali gönder
+        if not self.isInterruptionRequested():
+            self.all_finished.emit()
 
     def preprocess_image(self, file_path):
-        return AnalysisWorker.preprocess_image(self, file_path)
+        # Tekli analiz worker'ı ile aynı mantığı kullan
+        temp_worker = AnalysisWorker(self.models, self.device, file_path, self.label_names, self.modality)
+        return temp_worker.preprocess_image(file_path)
