@@ -12,6 +12,7 @@ from PyQt5.QtCore import Qt, pyqtSignal, QThread, QSize
 from PyQt5.QtGui import (QColor, QFont, QDragEnterEvent, QDragLeaveEvent, QDropEvent, QIcon,
                          QCursor)
 
+# --- Yardımcı Sınıflar (Tüm sayfalarda ortak) ---
 class KunyeDialog(QDialog):
     def __init__(self, takim_adi, takim_id, parent=None):
         super().__init__(parent)
@@ -76,6 +77,7 @@ class BaseMultiAnalysisPage(QWidget):
         
         if worker:
             try:
+                # Olası tüm sinyalleri disconnect et
                 if hasattr(worker, 'progress'): worker.progress.disconnect()
                 if hasattr(worker, 'file_progress'): worker.file_progress.disconnect()
                 if hasattr(worker, 'finished'): worker.finished.disconnect()
@@ -220,7 +222,6 @@ class BaseMultiAnalysisPage(QWidget):
         QMessageBox.critical(self, "Tarama Hatası", error_message)
 
     def set_ui_enabled(self, enabled):
-        # Bu metot alt sınıflarda ezilebilir
         self.upload_file_btn.setEnabled(enabled)
         self.upload_folder_btn.setEnabled(enabled)
         self.clear_btn.setEnabled(enabled)
@@ -288,10 +289,24 @@ class BaseMultiAnalysisPage(QWidget):
         self.progress_bar.setValue(0)
         self.right_stack.setCurrentWidget(self.initial_summary_widget)
 
-    # --- ALT SINIFLARIN EZMESİ GEREKEN METOTLAR ---
+    # --- YENİ EKLENEN ORTAK METOTLAR ---
+    def update_file_error(self, index, error_message):
+        self.set_status_badge(index, "Hata", "#e74c3c")
+        self.table.setItem(index, 2, QTableWidgetItem("Hata oluştu"))
+        self.progress_bar.setValue(self.progress_bar.value() + 1)
+
+    def analysis_finished(self):
+        self.set_ui_enabled(True)
+        if self.prediction_results:
+            self.save_btn.setEnabled(True)
+        self.progress_bar.setFormat("Analiz tamamlandı!")
+        self.update_summary_panel()
+        self.right_stack.setCurrentWidget(self.results_summary_widget)
+
+    # --- ALT SINIFLARIN EZMESİ GEREKEN SOYUT METOTLAR ---
     def get_worker_class(self): raise NotImplementedError
     def start_analysis(self): raise NotImplementedError
     def update_file_result(self, index, prediction, probabilities): raise NotImplementedError
-    def on_analysis_finished(self, results): raise NotImplementedError
+    def on_analysis_finished(self): self.analysis_finished()
     def save_results_to_json(self, takim_adi, takim_id): raise NotImplementedError
     def populate_table(self): raise NotImplementedError

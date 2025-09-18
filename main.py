@@ -5,8 +5,8 @@ import os
 import torch
 from PyQt5.QtWidgets import QApplication, QMainWindow, QStackedWidget, QMessageBox, QStyle
 
+# Doğru model sınıflarını ve sayfaları import et
 from model import MR_ConvNeXt, BT_ConvNeXt
-# --- DEĞİŞTİ: Yeni çoklu analiz sayfalarını import et ---
 from pages import StartPage, AnalysisModePage, SingleAnalysisPage, MultiAnalysisPageMR, MultiAnalysisPageBT
 
 class MedicalImageAnalyzer(QMainWindow):
@@ -115,6 +115,10 @@ class MedicalImageAnalyzer(QMainWindow):
     def go_back(self):
         if self.page_history:
             page_to_remove = self.stack.currentWidget()
+            # İşçilerin sinyallerini güvenle kes
+            if hasattr(page_to_remove, 'disconnect_worker_signals'):
+                page_to_remove.disconnect_worker_signals()
+            
             self.stack.removeWidget(page_to_remove)
             page_to_remove.deleteLater()
             

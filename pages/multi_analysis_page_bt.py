@@ -3,7 +3,8 @@
 import os
 import json
 from collections import Counter
-from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTableWidgetItem, QHeaderView, QStyle, QLabel, QFrame, QWidget, QHBoxLayout
+from PyQt5.QtWidgets import (QFileDialog, QMessageBox, QTableWidgetItem, 
+                             QHeaderView, QStyle, QLabel, QHBoxLayout, QFrame, QWidget)
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtCore import Qt
 
@@ -11,10 +12,16 @@ from .base_page import BaseMultiAnalysisPage
 from workers import MultiAnalysisWorker
 
 class MultiAnalysisPageBT(BaseMultiAnalysisPage):
+    """
+    BT için çoklu analiz sayfası.
+    Dosya bazlı tahmin yapar ve sonuçları yarışma formatına uygun kaydeder.
+    """
     def __init__(self, modality, models, device, label_names):
         super().__init__(modality, models, device, label_names)
+        
         self.upload_file_btn.setStyleSheet("QPushButton { font-size: 14px; background-color: #3498db; color: white; border-radius: 8px; padding: 5px; } QPushButton:hover { background-color: #5dade2; }")
         self.upload_folder_btn.setStyleSheet("QPushButton { font-size: 14px; background-color: #1abc9c; color: white; border-radius: 8px; padding: 5px; } QPushButton:hover { background-color: #2fe2bf; }")
+        
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(['Dosya Adı', 'Durum', 'Tahmin'])
         header = self.table.horizontalHeader()
@@ -44,6 +51,7 @@ class MultiAnalysisPageBT(BaseMultiAnalysisPage):
         self.right_stack.setCurrentWidget(self.initial_summary_widget)
         
         WorkerClass = self.get_worker_class()
+        # Worker'a parent ataması yapmıyoruz, base class'taki safe_go_back halledecek
         self.analysis_worker = WorkerClass(self.models, self.device, self.file_paths, self.label_names, self.modality)
         
         self.analysis_worker.file_progress.connect(self.update_file_result)
@@ -78,7 +86,9 @@ class MultiAnalysisPageBT(BaseMultiAnalysisPage):
         if save_path:
             kunye = {"takim_adi": takim_adi, "takim_id": takim_id, "aciklama": f"{modality_short} Tahmin Verileri", "versiyon": "v1.0"}
             tahminler = []
-            for file_path, result in self.prediction_results.items():
+            # Sıralı bir çıktı için dosya yollarını sırala
+            for file_path in sorted(self.prediction_results.keys()):
+                result = self.prediction_results[file_path]
                 tahmin_obj = {"filename": os.path.basename(file_path), "stroke": 1 if result["prediction"] == "İnme" else 0, "stroke_type": 3}
                 tahminler.append(tahmin_obj)
             
@@ -121,20 +131,3 @@ class MultiAnalysisPageBT(BaseMultiAnalysisPage):
             for pred, count in prediction_counts.items():
                 self.results_layout.addWidget(self.create_summary_label(f"{pred}:", f"{count} dosya"))
         self.results_layout.addStretch()
-
-    def update_file_error(self, index, error_message):
-        # Durumu kırmızı renkte 'Hata' olarak göster
-        self.set_status_badge(index, "Hata", "#e74c3c")
-        self.table.setItem(index, 2, QTableWidgetItem("-"))
-        
-        # İsteğe bağlı: kullanıcıya uyarı göster
-        # QMessageBox.warning(self, "Analiz Hatası",
-        #                     f"{os.path.basename(self.file_paths[index])} dosyasında hata:\n{error_message}")
-        
-        # Progress bar'ı güncelle
-        self.progress_bar.setValue(self.progress_bar.value() + 1)
-        
-        # Hata mesajını kaydetmek isterseniz prediction_results'a ekleyebilirsiniz
-        self.prediction_results[self.file_paths[index]] = {
-            "prediction": f"Hata: {error_message}"
-        }

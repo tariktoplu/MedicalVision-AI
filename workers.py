@@ -28,7 +28,7 @@ def robust_dicom_to_pil_rgb(path: str) -> Image.Image:
     img = (arr * 255.0).astype(np.uint8)
     return Image.fromarray(img, mode='L').convert('RGB')
 
-# --- BT için Test.py'den alınan DICOM işleme yardımcı fonksiyonları ---
+# --- BT için Test(2).py'den alınan DICOM işleme yardımcı fonksiyonları ---
 def _window_image(ds: pydicom.dataset.FileDataset) -> np.ndarray:
     data = ds.pixel_array.astype(np.float32)
     slope = float(getattr(ds, 'RescaleSlope', 1.0))
@@ -37,8 +37,8 @@ def _window_image(ds: pydicom.dataset.FileDataset) -> np.ndarray:
     try:
         data = apply_voi_lut(data, ds)
     except Exception:
-        center = float(ds.get('WindowCenter', 40.0))
-        width = float(ds.get('WindowWidth', 80.0))
+        center = ds.get('WindowCenter', 40.0)
+        width = ds.get('WindowWidth', 80.0)
         if isinstance(center, pydicom.multival.MultiValue): center = float(center[0])
         if isinstance(width, pydicom.multival.MultiValue): width = float(width[0])
         low = center - width / 2.0
@@ -68,25 +68,32 @@ class AnalysisWorker(QThread):
             if self.isInterruptionRequested(): return
             self.progress.emit("Görüntü işleniyor...")
             image_tensor = self.preprocess_image(self.file_path)
-            if image_tensor is None:
-                raise Exception("Görüntü işlenemedi veya desteklenmiyor.")
             image_tensor_gpu = image_tensor.to(self.device)
             if self.isInterruptionRequested(): return
             self.progress.emit("Model analizi yapılıyor...")
             
             if self.modality == 'MR':
-                predictions = []
+                logits_list = []
                 with torch.no_grad():
                     for model in self.models:
-                        if self.isInterruptionRequested(): return
                         output = model(image_tensor_gpu)
-                        pred_probs = torch.softmax(output, dim=1)
-                        predictions.append(pred_probs.cpu().numpy()[0])
-                avg_prediction = np.mean(predictions, axis=0)
-                predicted_class_idx = np.argmax(avg_prediction)
-                predicted_label = self.label_names[predicted_class_idx]
-                all_probabilities = (avg_prediction * 100).tolist()
-                self.finished.emit(predicted_label, all_probabilities)
+                        logits_list.append(output)
+                
+                avg_logits = torch.mean(torch.stack(logits_list), dim=0)
+                probabilities = torch.sigmoid(avg_logits).cpu().numpy()[0]
+                
+                ML_THRESH = 0.5
+                preds_binary = (probabilities >= ML_THRESH).astype(int)
+                
+                if np.sum(preds_binary) == 0:
+                    top_prediction_idx = np.argmax(probabilities)
+                    preds_binary = np.zeros_like(preds_binary)
+                    preds_binary[top_prediction_idx] = 1
+                
+                predicted_labels = [self.label_names[i] for i, val in enumerate(preds_binary) if val == 1]
+                predicted_label_str = ", ".join(predicted_labels)
+                all_probabilities_percent = (probabilities * 100).tolist()
+                self.finished.emit(predicted_label_str, all_probabilities_percent)
             
             elif self.modality == 'BT':
                 outputs = []
@@ -108,9 +115,9 @@ class AnalysisWorker(QThread):
     def preprocess_image(self, file_path):
         try:
             file_extension = os.path.splitext(file_path)[1].lower()
-            pil_image = None
             
             if self.modality == 'MR':
+                pil_image = None
                 if file_extension == '.dcm':
                     pil_image = robust_dicom_to_pil_rgb(file_path)
                 elif file_extension in ['.png', '.jpg', '.jpeg']:
@@ -128,12 +135,13 @@ class AnalysisWorker(QThread):
                 return tensor.unsqueeze(0)
             
             elif self.modality == 'BT':
+                pil_image_rgb = None
                 if file_extension == '.dcm':
                     ds = pydicom.dcmread(file_path, force=True)
                     arr = _window_image(ds)
-                    pil_image = Image.fromarray(arr).convert('RGB')
+                    pil_image_rgb = Image.fromarray(arr).convert('RGB')
                 elif file_extension in ['.png', '.jpg', '.jpeg']:
-                    pil_image = Image.open(file_path).convert('RGB')
+                    pil_image_rgb = Image.open(file_path).convert('RGB')
                 else:
                     raise ValueError(f"Desteklenmeyen format: {file_extension}")
                 
@@ -142,7 +150,7 @@ class AnalysisWorker(QThread):
                     T.ToTensor(),
                     T.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
                 ])
-                tensor = transform(pil_image)
+                tensor = transform(pil_image_rgb)
                 return tensor.unsqueeze(0)
             
             return None
@@ -150,6 +158,7 @@ class AnalysisWorker(QThread):
             raise Exception(f"Görüntü işleme hatası: {str(e)}")
 
 
+# --- YENİ EKLENDİ: Eksik olan MultiAnalysisWorker sınıfı ---
 class MultiAnalysisWorker(QThread):
     file_progress = pyqtSignal(int, str, list)
     file_error = pyqtSignal(int, str)
@@ -166,15 +175,17 @@ class MultiAnalysisWorker(QThread):
     def run(self):
         for i, file_path in enumerate(self.file_paths):
             if self.isInterruptionRequested():
-                print("BT Analizi kullanıcı tarafından iptal edildi.")
+                print(f"{self.modality} Analizi kullanıcı tarafından iptal edildi.")
                 return
-
             try:
-                image_tensor = self.preprocess_image(file_path)
+                # AnalysisWorker'daki preprocess metodunu çağırarak tutarlılığı sağla
+                temp_worker = AnalysisWorker(self.models, self.device, file_path, self.label_names, self.modality)
+                image_tensor = temp_worker.preprocess_image(file_path)
                 image_tensor_gpu = image_tensor.to(self.device)
                 
                 if self.modality == 'MR':
-                    # Bu worker BT için, bu bloğa girilmemeli.
+                    # Bu worker'ın MR versiyonu MultiAnalysisPageMR'da, bu bloğa girilmemeli
+                    # Ancak bir güvenlik önlemi olarak buraya da ekleyebiliriz
                     pass
                 elif self.modality == 'BT':
                     outputs = []
@@ -191,11 +202,5 @@ class MultiAnalysisWorker(QThread):
             except Exception as e:
                 self.file_error.emit(i, str(e))
         
-        # Sadece işlem normal bittiğinde bu sinyali gönder
         if not self.isInterruptionRequested():
             self.all_finished.emit()
-
-    def preprocess_image(self, file_path):
-        # Tekli analiz worker'ı ile aynı mantığı kullan
-        temp_worker = AnalysisWorker(self.models, self.device, file_path, self.label_names, self.modality)
-        return temp_worker.preprocess_image(file_path)

@@ -5,23 +5,15 @@ import torch.nn as nn
 import torchvision.models as models
 from torchvision.models import ConvNeXt_Tiny_Weights
 
-# --- YENİ MR MODELİ (L.py'deki mantıkla BİREBİR AYNI) ---
+# --- YENİ MR MODELİ (L.py'den - ConvNeXt-Tiny tabanlı) ---
 def MR_ConvNeXt(num_classes=3):
-    """
-    L.py'deki build_convnext_tiny fonksiyonunun aynısı.
-    Bu bir fonksiyon olduğu için, katman isimleri 'features...' şeklinde olur.
-    """
     model = models.convnext_tiny(weights=ConvNeXt_Tiny_Weights.DEFAULT)
     num_ftrs = model.classifier[2].in_features
     model.classifier[2] = nn.Linear(num_ftrs, num_classes)
     return model
 
-# --- BT MODELİ (Değişiklik yok) ---
+# --- ESKİ AMA BT İÇİN DOĞRU OLAN MODEL (Test(2).py'den) ---
 class BT_ConvNeXt(nn.Module):
-    """
-    Bu bir sınıf olduğu için, katman isimleri 'model.features...' şeklinde olur.
-    Eğitim kodu bu yapıda olduğu için bu şekilde kalmalıdır.
-    """
     def __init__(self):
         super(BT_ConvNeXt, self).__init__()
         self.model = models.convnext_tiny(weights=ConvNeXt_Tiny_Weights.DEFAULT)
