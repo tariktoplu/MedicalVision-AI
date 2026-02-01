@@ -42,16 +42,14 @@ MedicalVision-AI, sağlık profesyonellerinin beyin görüntülerini daha hızl�
 ```bash
 git clone https://github.com/tariktoplu/MedicalVision-AI.git
 cd MedicalVision-AI
+...
 2. Sanal ortam oluştur:
-```bash
 python -m venv venv
 source venv/bin/activate  # macOS/Linux
 venv\Scripts\activate     # Windows
 3. Paketleri Yükle:
 ```bash
 pip install -r requirements.txt
-4. Model klasörünü oluştur ve eğitilmiş modelleri yerleştir:
-```bash
 Models/
 ├── best_model_fold_0.pt
 ├── best_model_fold_1.pt
@@ -59,3 +57,12 @@ Models/
 5. Uygulamayı Çalıştır:
 
 python medical_analyzer.py
+
+🧠 Teknik Detaylar
+
+Model mimarisi:
+Input → 3D CNN → SE Attention → MaxPool → LSTM → Dense → Output (3 sınıf)
+
+📄 Lisans
+
+MIT License
