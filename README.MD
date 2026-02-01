@@ -45,20 +45,25 @@ cd MedicalVision-AI
 ```
 
 2. Sanal ortam oluştur:
+```bash
 python -m venv venv
 source venv/bin/activate  # macOS/Linux
 venv\Scripts\activate     # Windows
+```
 3. Paketleri Yükle:
 ```bash
 pip install -r requirements.txt
+```
+4. Model klasörünü oluştur ve eğitilmiş modelleri yerleştir:
+```bash
 Models/
 ├── best_model_fold_0.pt
 ├── best_model_fold_1.pt
-...
+```
 5. Uygulamayı Çalıştır:
-
+```bash
 python medical_analyzer.py
-
+```
 🧠 Teknik Detaylar
 
 Model mimarisi:
