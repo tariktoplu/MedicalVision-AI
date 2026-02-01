@@ -41,8 +41,9 @@ MedicalVision-AI, sağlık profesyonellerinin beyin görüntülerini daha hızl�
 1. Repo’yu klonla:
 ```bash
 git clone https://github.com/tariktoplu/MedicalVision-AI.git
-cd MedicalVision-AI```
-...
+cd MedicalVision-AI
+```
+
 2. Sanal ortam oluştur:
 python -m venv venv
 source venv/bin/activate  # macOS/Linux
