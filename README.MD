@@ -1,19 +1,61 @@
-Uygulamayı çalıştırmadan önce gerekli Python kütüphanelerini kurmanız gerekmektedir. Sanal ortam kullanmanız tavsiye edilir.
+# 🧠 MedicalVision-AI
 
-    Uygulamayı zipten cıkarın
+Profesyonel **Desktop Uygulaması** — **Beyin BT/MR görüntülerini AI ile otomatik analiz eden sistem.**  
+Bu proje, derin öğrenme tabanlı bir ensemble model ile medikal görüntüleri sınıflandırır ve **hiperakut/akut**, **subakut** ve **normal/kronik** lezyon fazlarını tespit eder. :contentReference[oaicite:1]{index=1}
 
-    Terminali Açın
+---
 
-    Proje Dizininize Gidin: cd komutunu kullanarak projenizin ana dizinine gidin.
+## 🔍 Genel Bakış
 
-    cd /path/to/Project
+MedicalVision-AI, sağlık profesyonellerinin beyin görüntülerini daha hızlı ve isabetli değerlendirmesine yardımcı olmak için tasarlanmış bir masaüstü uygulamasıdır.  
+📌 Hem **CT (BT)** hem **MR** görüntülerini destekler. :contentReference[oaicite:2]{index=2}
 
-    (Bu yolu kendi projenizin bulunduğu gerçek yolla değiştirin.)
+---
 
-Gerekli Kütüphaneleri requirements.txt ile Yükleme:
+## 💡 Özellikler
 
-    pip install -r requirements.txt
+### 🖥️ Kullanıcı Arayüzü
+- PyQt5 ile oluşturulmuş **modern GUI**  
+- Intuitif kullanıcı deneyimi  
+- Tekli ve toplu dosya analizi  
 
-Artık uygulamanızı çalıştırmak için hazırsınız:
+### 🤖 AI Modeli
+- **5-fold ensemble öğrenimi**  
+- **CNN + LSTM + SE (attention)** mimarisi  
+- **Focal Loss** ile dengesiz sınıf problemlerine çözüm  
+- GPU/CPU otomatik algılama :contentReference[oaicite:3]{index=3}
 
-    python main.py
+### 📊 Format Desteği
+- DICOM (.dcm)  
+- .png / .jpg / .jpeg / .bmp  
+- Toplu işleme (Batch Analysis) :contentReference[oaicite:4]{index=4}
+
+---
+
+## 📦 Kurulum & Çalıştırma
+
+Önkoşullar:
+- Python 3.8+  
+- PyTorch, PyQt5 vb. paketler
+
+1. Repo’yu klonla:
+```bash
+git clone https://github.com/tariktoplu/MedicalVision-AI.git
+cd MedicalVision-AI
+2. Sanal ortam oluştur:
+```bash
+python -m venv venv
+source venv/bin/activate  # macOS/Linux
+venv\Scripts\activate     # Windows
+3. Paketleri Yükle:
+```bash
+pip install -r requirements.txt
+4. Model klasörünü oluştur ve eğitilmiş modelleri yerleştir:
+```bash
+Models/
+├── best_model_fold_0.pt
+├── best_model_fold_1.pt
+...
+5. Uygulamayı Çalıştır:
+
+python medical_analyzer.py
