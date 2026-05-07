@@ -19,11 +19,11 @@ class BT_ConvNeXt(nn.Module):
         self.model = models.convnext_tiny(weights=ConvNeXt_Tiny_Weights.DEFAULT)
         num_ftrs = self.model.classifier[2].in_features
         self.model.classifier[2] = nn.Sequential(
-            nn.Linear(num_ftrs, 128),
-            nn.BatchNorm1d(128),
+            nn.Linear(num_ftrs, 256),
+            nn.BatchNorm1d(256),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(128, 1),
+            nn.Linear(256, 1),
             nn.Sigmoid()
         )
     

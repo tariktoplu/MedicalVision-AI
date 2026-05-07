@@ -1,4 +1,4 @@
-# 🏥 MedicalVision-AI
+# 🏥 NeuroViva-AI
 
 > **Advanced Medical Imaging Analysis System** - Professional desktop application for automated brain CT/MR image analysis using deep learning ensemble models.
 
@@ -8,7 +8,7 @@
 
 ## 🎯 Overview
 
-MedicalVision-AI is a state-of-the-art desktop application designed for medical professionals to analyze brain imaging data. The system uses a 5-fold ensemble CNN-LSTM model with SE (Squeeze-and-Excitation) attention mechanism to classify stroke lesion phases.
+NeuroViva-AI is a state-of-the-art desktop application designed for medical professionals to analyze brain imaging data. The system uses a 5-fold ensemble CNN-LSTM model with SE (Squeeze-and-Excitation) attention mechanism to classify stroke lesion phases.
 
 ### 🔬 Medical Classifications
 - **HiperakutAkut** (Hyperacute/Acute)
@@ -48,8 +48,8 @@ MedicalVision-AI is a state-of-the-art desktop application designed for medical 
 
 ### Step 1: Clone Repository
 ```bash
-git clone https://github.com/yourusername/MedicalVision-AI.git
-cd MedicalVision-AI
+git clone https://github.com/yourusername/NeuroViva-AI.git
+cd NeuroViva-AI
 ```
 
 ### Step 2: Create Virtual Environment (Recommended)
@@ -151,7 +151,7 @@ The ensemble model achieves high accuracy through:
 
 ### Project Structure
 ```
-MedicalVision-AI/
+NeuroViva-AI/
 ├── medical_analyzer.py      # Main application
 ├── train.py                 # Model training script
 ├── requirements.txt         # Dependencies
@@ -210,7 +210,7 @@ print(f"CUDA Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available()
 
 - **Author**: Tarık Toplu
 - **Email**: tarikttoplu@gmail.com
-- **Project Link**: [https://github.com/yourusername/MedicalVision-AI](https://github.com/tariktoplu/MedicalVision-AI)
+- **Project Link**: [https://github.com/yourusername/NeuroViva-AI](https://github.com/tariktoplu/NeuroViva-AI)
 
 ---
 

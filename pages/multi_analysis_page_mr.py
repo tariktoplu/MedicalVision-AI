@@ -152,15 +152,16 @@ class MultiAnalysisPageMR(BaseMultiAnalysisPage):
             else:
                 for label in labels:
                     prediction_counts[label] += 1
+        from ui.theme import Colors
         summary_title = QLabel("Hasta Bazlı Sonuç Özeti")
-        summary_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50; margin-bottom: 15px;")
+        summary_title.setStyleSheet(f"font-size:14px; font-weight:600; color:{Colors.TEXT_PRIMARY}; margin-bottom:10px;")
         self.results_layout.addWidget(summary_title)
         self.results_layout.addWidget(self.create_summary_label("Toplam Hasta:", f"{total_patients}"))
         separator = QFrame(); separator.setFrameShape(QFrame.HLine); separator.setFrameShadow(QFrame.Sunken)
         separator.setStyleSheet("margin-top: 10px; margin-bottom: 10px;")
         self.results_layout.addWidget(separator)
         prediction_title = QLabel("Tahmin Dağılımı (Hasta Sayısı)")
-        prediction_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #34495e; margin-bottom: 5px;")
+        prediction_title.setStyleSheet(f"font-size:13px; font-weight:600; color:{Colors.TEXT_SECONDARY}; margin-bottom:4px;")
         self.results_layout.addWidget(prediction_title)
         if not prediction_counts:
             no_preds_label = QLabel("Hiçbir başarılı tahmin bulunamadı."); no_preds_label.setStyleSheet("font-style: italic;")

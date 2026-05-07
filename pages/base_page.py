@@ -106,55 +106,87 @@ class BaseMultiAnalysisPage(QWidget):
         self.left_panel.setStyleSheet(self.style_sheet_default)
 
     def setup_ui(self):
-        self.style_sheet_default = "QFrame { background-color: white; border-radius: 10px; }"
-        self.style_sheet_drop_active = "QFrame { background-color: #eaf5ff; border: 2px dashed #3498db; border-radius: 10px; }"
+        from ui.theme import Colors
+        self.style_sheet_default = f"QFrame {{ background-color: {Colors.BG_CARD}; border-radius: 8px; border: 1px solid {Colors.BORDER}; }}"
+        self.style_sheet_drop_active = f"QFrame {{ background-color: {Colors.BG_CARD2}; border: 1px dashed {Colors.ACCENT}; border-radius: 8px; }}"
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
         
-        top_bar = QHBoxLayout()
-        back_btn = QPushButton(self.style().standardIcon(QStyle.SP_ArrowLeft), " Geri")
-        back_btn.setFixedSize(100, 40)
-        back_btn.setStyleSheet("QPushButton { font-size: 14px; background-color: #7f8c8d; color: white; border: none; border-radius: 8px; } QPushButton:hover { background-color: #95a5a6; }")
+        # ── Üst bar ──────────────────────────────────────────────────────
+        top_bar_frame = QFrame()
+        top_bar_frame.setFixedHeight(52)
+        top_bar_frame.setStyleSheet(
+            f"QFrame {{ background:{Colors.BG_PRIMARY};"
+            f" border-bottom:1px solid {Colors.BORDER}; border-radius:0; border:none;"
+            f" border-bottom:1px solid {Colors.BORDER}; }}"
+        )
+        top_bar = QHBoxLayout(top_bar_frame)
+        top_bar.setContentsMargins(24, 0, 24, 0)
+        
+        back_btn = QPushButton("← Geri")
+        back_btn.setObjectName("btn_back")
+        back_btn.setFixedHeight(32)
+        back_btn.setCursor(Qt.PointingHandCursor)
         back_btn.clicked.connect(self.safe_go_back)
         top_bar.addWidget(back_btn)
+        top_bar.addSpacing(16)
         
-        self.title_label = QLabel(f"{self.modality} - Çoklu Analiz")
-        self.title_label.setStyleSheet("font-size: 22px; font-weight: bold; color: #2c3e50; margin-left: 15px;")
+        self.title_label = QLabel(f"{self.modality}  •  Çoklu Analiz")
+        self.title_label.setStyleSheet(
+            f"font-size:16px; font-weight:600; color:{Colors.TEXT_PRIMARY};"
+        )
         top_bar.addWidget(self.title_label)
         top_bar.addStretch()
-        main_layout.addLayout(top_bar)
+        main_layout.addWidget(top_bar_frame)
+        
+        # ── İçerik alanı ─────────────────────────────────────────────────
+        content = QWidget()
+        content.setStyleSheet(f"background:{Colors.BG_PRIMARY};")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(16, 12, 16, 12)
+        content_layout.setSpacing(10)
         
         splitter = QSplitter(Qt.Horizontal)
+        splitter.setStyleSheet(f"QSplitter {{ background:{Colors.BG_PRIMARY}; }}")
         self.left_panel = QFrame()
         self.left_panel.setStyleSheet(self.style_sheet_default)
         left_layout = QVBoxLayout(self.left_panel)
-        left_layout.setContentsMargins(15, 15, 15, 15)
+        left_layout.setContentsMargins(14, 14, 14, 14)
         
-        self.upload_area_label = QLabel("Dosyaları veya Klasörleri Buraya Sürükleyin")
+        self.upload_area_label = QLabel("Dosyaları veya Klasörleri Sürükleyin")
         self.upload_area_label.setAlignment(Qt.AlignCenter)
-        self.upload_area_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #34495e; margin-bottom: 10px;")
+        self.upload_area_label.setStyleSheet(
+            f"font-size:14px; font-weight:600; color:{Colors.TEXT_SECONDARY}; margin-bottom:10px;"
+        )
         left_layout.addWidget(self.upload_area_label)
         
         top_button_layout = QHBoxLayout()
-        self.upload_file_btn = QPushButton(self.style().standardIcon(QStyle.SP_DialogOpenButton), " Dosya Seç...")
-        self.upload_file_btn.setFixedHeight(40)
+        self.upload_file_btn = QPushButton("Dosya Seç")
+        self.upload_file_btn.setObjectName("btn_primary")
+        self.upload_file_btn.setFixedHeight(36)
+        self.upload_file_btn.setCursor(Qt.PointingHandCursor)
         self.upload_file_btn.clicked.connect(self.upload_files_from_dialog)
         top_button_layout.addWidget(self.upload_file_btn)
         
-        self.upload_folder_btn = QPushButton(self.style().standardIcon(QStyle.SP_DirOpenIcon), " Klasör Seç...")
-        self.upload_folder_btn.setFixedHeight(40)
+        self.upload_folder_btn = QPushButton("Klasör Seç")
+        self.upload_folder_btn.setFixedHeight(36)
+        self.upload_folder_btn.setCursor(Qt.PointingHandCursor)
         self.upload_folder_btn.clicked.connect(self.upload_folder_from_dialog)
         top_button_layout.addWidget(self.upload_folder_btn)
         left_layout.addLayout(top_button_layout)
         
         bottom_button_layout = QHBoxLayout()
-        self.clear_btn = QPushButton(self.style().standardIcon(QStyle.SP_TrashIcon), " Listeyi Temizle")
-        self.clear_btn.setFixedHeight(40)
+        self.clear_btn = QPushButton("Temizle")
+        self.clear_btn.setFixedHeight(36)
+        self.clear_btn.setCursor(Qt.PointingHandCursor)
         self.clear_btn.clicked.connect(self.clear_files)
         bottom_button_layout.addWidget(self.clear_btn)
         
-        self.save_btn = QPushButton(self.style().standardIcon(QStyle.SP_DialogSaveButton), " Sonuçları Kaydet")
-        self.save_btn.setFixedHeight(40)
+        self.save_btn = QPushButton("Sonuçları Kaydet")
+        self.save_btn.setObjectName("btn_success")
+        self.save_btn.setFixedHeight(36)
+        self.save_btn.setCursor(Qt.PointingHandCursor)
         self.save_btn.clicked.connect(self.open_kunye_dialog_and_save)
         self.save_btn.setEnabled(False)
         bottom_button_layout.addWidget(self.save_btn)
@@ -177,18 +209,17 @@ class BaseMultiAnalysisPage(QWidget):
         self.initial_summary_widget = QWidget()
         initial_layout = QVBoxLayout(self.initial_summary_widget)
         initial_layout.setAlignment(Qt.AlignCenter)
-        summary_icon = QLabel()
-        summary_icon.setPixmap(self.style().standardIcon(QStyle.SP_FileDialogDetailedView).pixmap(QSize(80, 80)))
-        initial_layout.addWidget(summary_icon)
-        initial_msg = QLabel("Analiz Sonuçları Özeti Burada Görüntülenecek")
+        initial_msg = QLabel("Analiz sonuçları burada görüntülenecek")
         initial_msg.setAlignment(Qt.AlignCenter)
         initial_msg.setWordWrap(True)
-        initial_msg.setStyleSheet("color: #7f8c8d; font-size: 18px;")
+        initial_msg.setStyleSheet(
+            f"color:{Colors.TEXT_MUTED}; font-size:12px;"
+        )
         initial_layout.addWidget(initial_msg)
         
         self.results_summary_widget = QWidget()
         self.results_layout = QVBoxLayout(self.results_summary_widget)
-        self.results_layout.setContentsMargins(20, 20, 20, 20)
+        self.results_layout.setContentsMargins(16, 16, 16, 16)
         self.results_layout.setAlignment(Qt.AlignTop)
         
         self.right_stack.addWidget(self.initial_summary_widget)
@@ -198,7 +229,8 @@ class BaseMultiAnalysisPage(QWidget):
         splitter.addWidget(self.left_panel)
         splitter.addWidget(right_panel)
         splitter.setSizes([700, 400])
-        main_layout.addWidget(splitter, 1)
+        content_layout.addWidget(splitter, 1)
+        main_layout.addWidget(content, 1)
 
     def handle_paths(self, paths):
         self.set_ui_enabled(False)

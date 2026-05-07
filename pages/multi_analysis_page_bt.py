@@ -19,8 +19,9 @@ class MultiAnalysisPageBT(BaseMultiAnalysisPage):
     def __init__(self, modality, models, device, label_names):
         super().__init__(modality, models, device, label_names)
         
-        self.upload_file_btn.setStyleSheet("QPushButton { font-size: 14px; background-color: #3498db; color: white; border-radius: 8px; padding: 5px; } QPushButton:hover { background-color: #5dade2; }")
-        self.upload_folder_btn.setStyleSheet("QPushButton { font-size: 14px; background-color: #1abc9c; color: white; border-radius: 8px; padding: 5px; } QPushButton:hover { background-color: #2fe2bf; }")
+        self.upload_file_btn.setObjectName("btn_primary")
+        self.upload_file_btn.setCursor(Qt.PointingHandCursor)
+        self.upload_folder_btn.setCursor(Qt.PointingHandCursor)
         
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(['Dosya Adı', 'Durum', 'Tahmin'])
@@ -108,20 +109,21 @@ class MultiAnalysisPageBT(BaseMultiAnalysisPage):
         predictions = [self.table.item(r, 2).text() for r in range(self.table.rowCount()) if self.table.item(r, 1).text() == "Tamamlandı"]
         status_counts, prediction_counts = Counter(statuses), Counter(predictions)
         
+        from ui.theme import Colors
         summary_title = QLabel("Analiz Sonuç Özeti")
-        summary_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50; margin-bottom: 15px;")
+        summary_title.setStyleSheet(f"font-size:14px; font-weight:600; color:{Colors.TEXT_PRIMARY}; margin-bottom:10px;")
         self.results_layout.addWidget(summary_title)
         
         self.results_layout.addWidget(self.create_summary_label("Toplam Dosya:", f"{total_files}"))
-        self.results_layout.addWidget(self.create_summary_label("Başarılı:", f"{status_counts.get('Tamamlandı', 0)}", "#27ae60"))
-        self.results_layout.addWidget(self.create_summary_label("Hatalı:", f"{status_counts.get('Hata', 0)}", "#e74c3c"))
+        self.results_layout.addWidget(self.create_summary_label("Başarılı:", f"{status_counts.get('Tamamlandı', 0)}", Colors.SUCCESS))
+        self.results_layout.addWidget(self.create_summary_label("Hatalı:", f"{status_counts.get('Hata', 0)}", Colors.DANGER))
         
         separator = QFrame(); separator.setFrameShape(QFrame.HLine); separator.setFrameShadow(QFrame.Sunken)
         separator.setStyleSheet("margin-top: 10px; margin-bottom: 10px;")
         self.results_layout.addWidget(separator)
         
         prediction_title = QLabel("Tahmin Dağılımı")
-        prediction_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #34495e; margin-bottom: 5px;")
+        prediction_title.setStyleSheet(f"font-size:13px; font-weight:600; color:{Colors.TEXT_SECONDARY}; margin-bottom:4px;")
         self.results_layout.addWidget(prediction_title)
         
         if not prediction_counts:

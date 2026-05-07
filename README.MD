@@ -1,4 +1,4 @@
-# 🧠 MedicalVision-AI
+# 🧠 NeuroViva-AI
 
 Profesyonel **Desktop Uygulaması** — **Beyin BT/MR görüntülerini AI ile otomatik analiz eden sistem.**  
 Bu proje, derin öğrenme tabanlı bir ensemble model ile medikal görüntüleri sınıflandırır ve **hiperakut/akut**, **subakut** ve **normal/kronik** lezyon fazlarını tespit eder. :contentReference[oaicite:1]{index=1}
@@ -7,7 +7,7 @@ Bu proje, derin öğrenme tabanlı bir ensemble model ile medikal görüntüleri
 
 ## 🔍 Genel Bakış
 
-MedicalVision-AI, sağlık profesyonellerinin beyin görüntülerini daha hızlı ve isabetli değerlendirmesine yardımcı olmak için tasarlanmış bir masaüstü uygulamasıdır.  
+NeuroViva-AI, sağlık profesyonellerinin beyin görüntülerini daha hızlı ve isabetli değerlendirmesine yardımcı olmak için tasarlanmış bir masaüstü uygulamasıdır.  
 📌 Hem **CT (BT)** hem **MR** görüntülerini destekler. :contentReference[oaicite:2]{index=2}
 
 ---
@@ -40,8 +40,8 @@ MedicalVision-AI, sağlık profesyonellerinin beyin görüntülerini daha hızl�
 
 1. Repo’yu klonla:
 ```bash
-git clone https://github.com/tariktoplu/MedicalVision-AI.git
-cd MedicalVision-AI
+git clone https://github.com/tariktoplu/NeuroViva-AI.git
+cd NeuroViva-AI
 ```
 
 2. Sanal ortam oluştur:

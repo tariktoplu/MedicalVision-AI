@@ -1,148 +1,203 @@
 # main.py
+# Minimalist Dark Medical Dashboard — Sidebar'sız, temiz navigasyon
+# Turan YZ — NeuroViva AI
 
 import sys
 import os
 import torch
-from PyQt5.QtWidgets import QApplication, QMainWindow, QStackedWidget, QMessageBox, QStyle
 
-# Doğru model sınıflarını ve sayfaları import et
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QStackedWidget,
+    QVBoxLayout, QHBoxLayout, QLabel, QFrame, QPushButton,
+    QMessageBox, QSizePolicy
+)
+from PyQt5.QtCore import Qt, QSize
+from PyQt5.QtGui import QFont, QIcon, QPixmap
+
 from model import MR_ConvNeXt, BT_ConvNeXt
-from pages import StartPage, AnalysisModePage, SingleAnalysisPage, MultiAnalysisPageMR, MultiAnalysisPageBT
+from pages import (
+    StartPage, AnalysisModePage, SingleAnalysisPage,
+    MultiAnalysisPageMR, MultiAnalysisPageBT
+)
+from ui.theme import DARK_THEME, Colors, LOGO_DARK
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ana Pencere — Minimalist, sidebar'sız
+# ─────────────────────────────────────────────────────────────────────────────
 class MedicalImageAnalyzer(QMainWindow):
-    """Ana uygulama sınıfı"""
-    
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Medikal Görüntü Analiz Sistemi")
-        self.setGeometry(100, 100, 1200, 800)
-        self.setMinimumSize(1000, 700)
-        self.setStyleSheet("QMainWindow { background-color: #ecf0f1; }")
-        
+        self.setWindowTitle("NeuroViva AI — Turan YZ")
+        self.setGeometry(100, 60, 1100, 760)
+        self.setMinimumSize(900, 600)
+
+        # Pencere ikonu
+        if os.path.exists(LOGO_DARK):
+            self.setWindowIcon(QIcon(LOGO_DARK))
+
+        # Tema uygula
+        self.setStyleSheet(DARK_THEME)
+
+        # Cihaz + Modeller
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
-        self.mr_models = self._load_models_from_path("Models/MR", MR_ConvNeXt, "MR")
-        self.bt_models = self._load_models_from_path("Models/BT", BT_ConvNeXt, "BT")
-        
+        self.mr_models = self._load_models("Models/MR", MR_ConvNeXt, "MR")
+        self.bt_models = self._load_models("Models/BT", BT_ConvNeXt, "BT")
+
         self.label_names_mr = ['HiperakutAkut', 'Subakut', 'NormalKronik']
         self.label_names_bt = ['Sağlıklı', 'İnme']
-        
+
+        self.page_history: list = []
+
+        self._build_ui()
+
+        # Durum çubuğu
+        mr_count = len(self.mr_models)
+        bt_count = len(self.bt_models)
+        device_label = "GPU" if "cuda" in str(self.device) else "CPU"
+        self.statusBar().showMessage(
+            f"  {mr_count} MR  •  {bt_count} BT modeli  •  {device_label}  •  Turan YZ"
+        )
+
+    # ── UI kurulumu ───────────────────────────────────────────────────────────
+    def _build_ui(self):
+        central = QWidget()
+        central.setStyleSheet(f"background:{Colors.BG_PRIMARY};")
+        self.setCentralWidget(central)
+
+        main_layout = QVBoxLayout(central)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # Sayfa yığını
         self.stack = QStackedWidget()
-        self.setCentralWidget(self.stack)
-        
+        self.stack.setStyleSheet(f"background:{Colors.BG_PRIMARY};")
+        main_layout.addWidget(self.stack, 1)
+
+        # Start page
         self.start_page = StartPage()
         self.start_page.modality_selected.connect(self.show_mode_page)
         self.stack.addWidget(self.start_page)
-        
-        self.page_history = []
-        
-        self.status_bar = self.statusBar()
-        self.status_bar.showMessage(f"Hazır - {len(self.mr_models)} MR, {len(self.bt_models)} BT modeli yüklendi - Cihaz: {self.device}")
-        
-        self.setWindowIcon(self.style().standardIcon(QStyle.SP_ComputerIcon))
-    
-    def _load_models_from_path(self, model_path, model_class_or_function, label):
+
+    # ── Model yükleme ─────────────────────────────────────────────────────────
+    def _load_models(self, path: str, model_cls, label: str) -> list:
         models = []
-        if not os.path.isdir(model_path):
-            QMessageBox.critical(None, f"{label} Model Hatası", f"'{model_path}' klasörü bulunamadı!")
+        if not os.path.isdir(path):
+            print(f"Uyarı: '{path}' klasörü bulunamadı.")
             return models
         try:
-            model_files = [f for f in os.listdir(model_path) if f.endswith(('.pt', '.pth'))]
-            if not model_files:
-                print(f"Uyarı: '{model_path}' klasöründe model dosyası bulunamadı.")
-                return models
-
-            for model_file in model_files:
-                path = os.path.join(model_path, model_file)
-                model = model_class_or_function()
-                
-                ckpt = torch.load(path, map_location=self.device, weights_only=False)
-                
-                if isinstance(ckpt, dict) and "state_dict" in ckpt:
-                    state_dict_to_load = ckpt["state_dict"]
-                else:
-                    state_dict_to_load = ckpt
-                
-                model.load_state_dict(state_dict_to_load, strict=False)
-
+            files = [f for f in os.listdir(path) if f.endswith(('.pt', '.pth'))]
+            for fname in files:
+                full = os.path.join(path, fname)
+                model = model_cls()
+                ckpt  = torch.load(full, map_location=self.device, weights_only=False)
+                state = ckpt.get("state_dict", ckpt) if isinstance(ckpt, dict) else ckpt
+                model.load_state_dict(state, strict=False)
                 model.to(self.device)
                 model.eval()
                 models.append(model)
-                print(f"'{path}' başarıyla yüklendi.")
-            print(f"Toplam {len(models)} adet {label} modeli başarıyla yüklendi.")
+                print(f"[OK] {full}")
+            print(f"{len(models)} adet {label} modeli yüklendi.")
         except Exception as e:
-            QMessageBox.critical(None, f"{label} Model Yükleme Hatası", f"Modeller yüklenirken hata oluştu:\n{str(e)}")
-        
+            QMessageBox.critical(
+                None, f"{label} Model Yükleme Hatası",
+                f"Modeller yüklenirken hata oluştu:\n{e}"
+            )
         return models
 
-    def show_mode_page(self, modality):
-        current_page = self.stack.currentWidget()
-        if current_page not in self.page_history:
-            self.page_history.append(current_page)
+    # ── Sayfa geçişleri ───────────────────────────────────────────────────────
+    def show_start_page(self):
+        """Ana sayfaya dön, yığındaki tüm dinamik sayfaları temizle."""
+        while self.stack.count() > 1:
+            w = self.stack.widget(1)
+            self.stack.removeWidget(w)
+            w.deleteLater()
+        self.page_history.clear()
+        self.stack.setCurrentWidget(self.start_page)
 
+    def show_mode_page(self, modality: str):
+        self._push_current()
         mode_page = AnalysisModePage(modality)
         mode_page.mode_selected.connect(self.show_analysis_page)
         mode_page.back_clicked.connect(self.go_back)
         self.stack.addWidget(mode_page)
         self.stack.setCurrentWidget(mode_page)
-    
-    def show_analysis_page(self, modality, mode):
-        current_page = self.stack.currentWidget()
-        if current_page not in self.page_history:
-            self.page_history.append(current_page)
 
-        models_to_use, labels_to_use = (self.mr_models, self.label_names_mr) if modality == "MR" else (self.bt_models, self.label_names_bt)
+    def show_analysis_page(self, modality: str, mode: str):
+        self._push_current()
 
-        if not models_to_use:
-            QMessageBox.warning(self, "Model Eksik", f"'{modality}' için yüklenmiş model bulunamadı.")
-            self.go_back()
+        models = self.mr_models if modality == "MR" else self.bt_models
+        labels = self.label_names_mr if modality == "MR" else self.label_names_bt
+
+        if not models:
+            QMessageBox.warning(
+                self, "Model Eksik",
+                f"'{modality}' için yüklenmiş model bulunamadı."
+            )
+            # _push_current ile eklediğimizi geri al
+            if self.page_history:
+                self.page_history.pop()
             return
 
-        analysis_page = None
         if mode == "single":
-            analysis_page = SingleAnalysisPage(modality, models_to_use, self.device, labels_to_use)
-        else: # multi modu
-            if modality == "MR":
-                analysis_page = MultiAnalysisPageMR(modality, models_to_use, self.device, labels_to_use)
-            elif modality == "BT":
-                analysis_page = MultiAnalysisPageBT(modality, models_to_use, self.device, labels_to_use)
-        
-        if analysis_page:
-            analysis_page.back_clicked.connect(self.go_back)
-            self.stack.addWidget(analysis_page)
-            self.stack.setCurrentWidget(analysis_page)
-    
+            page = SingleAnalysisPage(modality, models, self.device, labels)
+        elif modality == "MR":
+            page = MultiAnalysisPageMR(modality, models, self.device, labels)
+        else:
+            page = MultiAnalysisPageBT(modality, models, self.device, labels)
+
+        page.back_clicked.connect(self.go_back)
+        self.stack.addWidget(page)
+        self.stack.setCurrentWidget(page)
+
     def go_back(self):
         if self.page_history:
-            page_to_remove = self.stack.currentWidget()
-            # İşçilerin sinyallerini güvenle kes
-            if hasattr(page_to_remove, 'disconnect_worker_signals'):
-                page_to_remove.disconnect_worker_signals()
-            
-            self.stack.removeWidget(page_to_remove)
-            page_to_remove.deleteLater()
-            
-            prev_page = self.page_history.pop()
-            self.stack.setCurrentWidget(prev_page)
+            current = self.stack.currentWidget()
+            if hasattr(current, 'disconnect_worker_signals'):
+                current.disconnect_worker_signals()
+
+            prev = self.page_history.pop()
+
+            # Önceki widget hâlâ stack'te mi kontrol et
+            if self.stack.indexOf(prev) >= 0:
+                self.stack.setCurrentWidget(prev)
+
+            if current and self.stack.indexOf(current) >= 0:
+                self.stack.removeWidget(current)
+                current.deleteLater()
         else:
             self.show_start_page()
 
-    def show_start_page(self):
-        while self.stack.count() > 1:
-            widget = self.stack.widget(1)
-            self.stack.removeWidget(widget)
-            widget.deleteLater()
-        
-        self.page_history.clear()
-        self.stack.setCurrentWidget(self.start_page)
+    def _push_current(self):
+        current = self.stack.currentWidget()
+        if current not in self.page_history:
+            self.page_history.append(current)
 
+
+# ─────────────────────────────────────────────────────────────────────────────
 def main():
     app = QApplication(sys.argv)
-    app.setApplicationName("Medikal Görüntü Analiz Sistemi")
-    app.setStyle('Fusion')
+    app.setApplicationName("NeuroViva AI")
+    app.setStyle("Fusion")
+
+    # Fusion base palette
+    from PyQt5.QtGui import QPalette, QColor
+    palette = QPalette()
+    palette.setColor(QPalette.Window,          QColor(Colors.BG_PRIMARY))
+    palette.setColor(QPalette.WindowText,      QColor(Colors.TEXT_PRIMARY))
+    palette.setColor(QPalette.Base,            QColor(Colors.BG_CARD))
+    palette.setColor(QPalette.AlternateBase,   QColor(Colors.BG_CARD2))
+    palette.setColor(QPalette.Text,            QColor(Colors.TEXT_PRIMARY))
+    palette.setColor(QPalette.Button,          QColor(Colors.BG_SUBTLE))
+    palette.setColor(QPalette.ButtonText,      QColor(Colors.TEXT_PRIMARY))
+    palette.setColor(QPalette.Highlight,       QColor(Colors.PRIMARY))
+    palette.setColor(QPalette.HighlightedText, QColor("#FFFFFF"))
+    app.setPalette(palette)
+
     window = MedicalImageAnalyzer()
     window.show()
     sys.exit(app.exec_())
+
 
 if __name__ == "__main__":
     main()
